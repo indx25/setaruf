@@ -32,11 +32,9 @@ export default function AuthPage() {
   const [loginPassword, setLoginPassword] = useState('')
 
   // Register form state
-  const [registerName, setRegisterName] = useState('')
   const [registerEmail, setRegisterEmail] = useState('')
   const [registerPassword, setRegisterPassword] = useState('')
   const [registerConfirmPassword, setRegisterConfirmPassword] = useState('')
-  const [registerDateOfBirth, setRegisterDateOfBirth] = useState('')
 
   // Data Fitur Baru
   const uniqueFeatures = [
@@ -81,7 +79,7 @@ export default function AuthPage() {
     setError('')
 
     // Validasi
-    if (!registerName || !registerEmail || !registerPassword || !registerDateOfBirth) {
+    if (!registerEmail || !registerPassword) {
       setError('Semua field wajib diisi')
       return
     }
@@ -103,21 +101,6 @@ export default function AuthPage() {
       return
     }
 
-    // Validasi usia (minimal 17 tahun)
-    const dob = new Date(registerDateOfBirth)
-    const today = new Date()
-    const age = today.getFullYear() - dob.getFullYear()
-    const monthDiff = today.getMonth() - dob.getMonth()
-
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
-      if (age - 1 < 17) {
-        setError('Maaf, usia minimal 17 tahun untuk mendaftar')
-        return
-      }
-    } else if (age < 17) {
-      setError('Maaf, usia minimal 17 tahun untuk mendaftar')
-      return
-    }
 
     setIsLoading(true)
 
@@ -131,10 +114,8 @@ export default function AuthPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: registerName,
           email: registerEmail,
           password: registerPassword,
-          dateOfBirth: registerDateOfBirth,
           quiz
         }),
       })
@@ -306,45 +287,16 @@ export default function AuthPage() {
                       {(executeRecaptcha) => (
                         <form onSubmit={(e) => handleRegister(e, executeRecaptcha)} className="space-y-4 mt-6">
                           <div className="space-y-2">
-                            <Label htmlFor="register-name">Nama Lengkap</Label>
+                            <Label htmlFor="register-email">Email</Label>
                             <Input
-                              id="register-name"
-                              type="text"
-                              placeholder="Masukkan nama lengkap"
-                              value={registerName}
-                              onChange={(e) => setRegisterName(e.target.value)}
+                              id="register-email"
+                              type="email"
+                              placeholder="nama@email.com"
+                              value={registerEmail}
+                              onChange={(e) => setRegisterEmail(e.target.value)}
                               required
                               disabled={isLoading}
                             />
-                          </div>
-                          
-                          {/* Grid Layout for DOB & Email */}
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-2">
-                              <Label htmlFor="register-dob">Tgl Lahir</Label>
-                              <Input
-                                id="register-dob"
-                                type="date"
-                                value={registerDateOfBirth}
-                                onChange={(e) => setRegisterDateOfBirth(e.target.value)}
-                                required
-                                disabled={isLoading}
-                                max={new Date().toISOString().split('T')[0]}
-                                className="text-sm"
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label htmlFor="register-email">Email</Label>
-                              <Input
-                                id="register-email"
-                                type="email"
-                                placeholder="nama@email.com"
-                                value={registerEmail}
-                                onChange={(e) => setRegisterEmail(e.target.value)}
-                                required
-                                disabled={isLoading}
-                              />
-                            </div>
                           </div>
 
                           <div className="space-y-2">
