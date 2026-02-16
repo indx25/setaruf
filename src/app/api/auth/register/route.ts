@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import bcrypt from 'bcryptjs'
-import { verifyRecaptchaToken } from '@/lib/recaptcha'
+import { verifyQuiz } from '@/lib/quiz'
+import { isBlocked, recordWrongQuizAttempt } from '@/lib/rate-limit'
 
 const rateStore = new Map<string, number[]>()
 const RATE_LIMIT = 5
@@ -15,7 +16,7 @@ function getClientKey(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { name, email, password, dateOfBirth, recaptchaToken } = await request.json()
+    const { name, email, password, dateOfBirth, quiz } = await request.json()
 
     // Validasi input
     if (!name || !email || !password || !dateOfBirth) {
@@ -37,11 +38,21 @@ export async function POST(request: NextRequest) {
     timestamps.push(now)
     rateStore.set(key, timestamps)
 
-    // Verifikasi reCAPTCHA
-    const recaptchaResult = await verifyRecaptchaToken(recaptchaToken || '')
-    if (!recaptchaResult.success) {
+    const xf = request.headers.get('x-forwarded-for') || ''
+    const ip = request.ip || xf.split(',')[0]?.trim() || 'unknown'
+    const rlKey = `quiz:register:${ip}`
+    if (isBlocked(rlKey)) {
       return NextResponse.json(
-        { error: recaptchaResult.error || 'Verifikasi keamanan gagal' },
+        { error: 'Terlalu banyak jawaban salah. Coba lagi nanti.' },
+        { status: 429 }
+      )
+    }
+
+    const quizResult = await verifyQuiz(quiz)
+    if (!quizResult.success) {
+      recordWrongQuizAttempt(rlKey)
+      return NextResponse.json(
+        { error: quizResult.error || 'Verifikasi keamanan gagal' },
         { status: 400 }
       )
     }

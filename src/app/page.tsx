@@ -20,7 +20,7 @@ import {
   GitCommit, 
   Gift 
 } from 'lucide-react'
-import { RecaptchaWrapper } from '@/components/recaptcha-wrapper'
+import { MathQuizWrapper } from '@/components/math-quiz-wrapper'
 import { signIn } from 'next-auth/react'
 
 export default function AuthPage() {
@@ -48,21 +48,21 @@ export default function AuthPage() {
     { text: "Structured taaruf flow", icon: GitCommit }
   ]
 
-  const handleLogin = async (e: React.FormEvent, executeRecaptcha: () => Promise<string>) => {
+  const handleLogin = async (e: React.FormEvent, executeQuiz: () => Promise<{ a: number; b: number; op: '+' | '-'; answer: number }>) => {
     e.preventDefault()
     setError('')
     setIsLoading(true)
 
     try {
-      const recaptchaToken = await executeRecaptcha()
-      if (!recaptchaToken) {
+      const quiz = await executeQuiz()
+      if (!quiz) {
         throw new Error('Verifikasi keamanan gagal. Silakan coba lagi.')
       }
 
       const result = await signIn('credentials', {
         email: loginEmail,
         password: loginPassword,
-        recaptchaToken,
+        quiz: JSON.stringify(quiz),
         redirect: false,
       })
       if (!result || result.error) {
@@ -76,7 +76,7 @@ export default function AuthPage() {
     }
   }
 
-  const handleRegister = async (e: React.FormEvent, executeRecaptcha: () => Promise<string>) => {
+  const handleRegister = async (e: React.FormEvent, executeQuiz: () => Promise<{ a: number; b: number; op: '+' | '-'; answer: number }>) => {
     e.preventDefault()
     setError('')
 
@@ -122,8 +122,8 @@ export default function AuthPage() {
     setIsLoading(true)
 
     try {
-      const recaptchaToken = await executeRecaptcha()
-      if (!recaptchaToken) {
+      const quiz = await executeQuiz()
+      if (!quiz) {
         throw new Error('Verifikasi keamanan gagal. Silakan coba lagi.')
       }
 
@@ -135,7 +135,7 @@ export default function AuthPage() {
           email: registerEmail,
           password: registerPassword,
           dateOfBirth: registerDateOfBirth,
-          recaptchaToken
+          quiz
         }),
       })
 
@@ -148,7 +148,7 @@ export default function AuthPage() {
       const result = await signIn('credentials', {
         email: registerEmail,
         password: registerPassword,
-        recaptchaToken,
+        quiz: JSON.stringify(quiz),
         redirect: false,
       })
       if (!result || result.error) {
@@ -260,7 +260,7 @@ export default function AuthPage() {
                   </TabsList>
                   
                   <TabsContent value="login">
-                    <RecaptchaWrapper action="login">
+                    <MathQuizWrapper op="+">
                       {(executeRecaptcha) => (
                         <form onSubmit={(e) => handleLogin(e, executeRecaptcha)} className="space-y-4 mt-6">
                           <div className="space-y-2">
@@ -299,11 +299,11 @@ export default function AuthPage() {
                           </Button>
                         </form>
                       )}
-                    </RecaptchaWrapper>
+                    </MathQuizWrapper>
                   </TabsContent>
 
                   <TabsContent value="register">
-                    <RecaptchaWrapper action="register">
+                    <MathQuizWrapper op="+">
                       {(executeRecaptcha) => (
                         <form onSubmit={(e) => handleRegister(e, executeRecaptcha)} className="space-y-4 mt-6">
                           <div className="space-y-2">
@@ -381,7 +381,7 @@ export default function AuthPage() {
                           </Button>
                         </form>
                       )}
-                    </RecaptchaWrapper>
+                    </MathQuizWrapper>
                   </TabsContent>
                 </Tabs>
                 {error && (
@@ -390,6 +390,20 @@ export default function AuthPage() {
                     <AlertDescription>{error}</AlertDescription>
                   </Alert>
                 )}
+                <div className="mt-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="h-px flex-1 bg-gray-200"></div>
+                    <span className="text-xs text-gray-500">atau</span>
+                    <div className="h-px flex-1 bg-gray-200"></div>
+                  </div>
+                  <Button
+                    type="button"
+                    onClick={() => signIn('google')}
+                    className="w-full h-11 bg-white text-gray-800 border border-gray-200 hover:bg-gray-50"
+                  >
+                    Masuk dengan Google
+                  </Button>
+                </div>
               </CardContent>
               
               <CardFooter className="flex justify-center relative z-10">

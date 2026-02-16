@@ -1,9 +1,11 @@
 import type { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
+import GoogleProvider from 'next-auth/providers/google'
 import { PrismaAdapter } from '@next-auth/prisma-adapter'
 import { db } from '@/lib/db'
 import bcrypt from 'bcryptjs'
-import { verifyRecaptchaToken } from '@/lib/recaptcha'
+import { verifyQuiz } from '@/lib/quiz'
+import { isBlocked, recordWrongQuizAttempt } from '@/lib/rate-limit'
 
 export const authOptions: NextAuthOptions = {
   adapter: PrismaAdapter(db),
@@ -20,17 +22,25 @@ export const authOptions: NextAuthOptions = {
       credentials: {
         email: { label: 'Email', type: 'text' },
         password: { label: 'Password', type: 'password' },
-        recaptchaToken: { label: 'recaptchaToken', type: 'text' },
+        quiz: { label: 'quiz', type: 'text' },
       },
       async authorize(credentials) {
         try {
           const email = String(credentials?.email || '').trim().toLowerCase()
           const password = String(credentials?.password || '')
-          const recaptchaToken = String(credentials?.recaptchaToken || '')
+          const quizPayloadRaw = String(credentials?.quiz || '')
+          let quiz: any = null
+          try { quiz = JSON.parse(quizPayloadRaw) } catch {}
 
-          const recaptchaResult = await verifyRecaptchaToken(recaptchaToken)
-          if (!recaptchaResult.success) {
-            return null
+          const rlKey = `quiz:login:${email}`
+          if (isBlocked(rlKey)) {
+            throw new Error('Terlalu banyak jawaban salah. Coba lagi nanti.')
+          }
+
+          const quizResult = await verifyQuiz(quiz)
+          if (!quizResult.success) {
+            recordWrongQuizAttempt(rlKey)
+            throw new Error('Verifikasi quiz gagal')
           }
 
           const user = await db.user.findUnique({
@@ -55,6 +65,11 @@ export const authOptions: NextAuthOptions = {
           return null
         }
       }
+    })
+    ,
+    GoogleProvider({
+      clientId: process.env.GOOGLE_CLIENT_ID || '',
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
     })
   ],
   callbacks: {
