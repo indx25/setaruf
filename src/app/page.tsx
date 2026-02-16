@@ -184,7 +184,7 @@ export default function AuthPage() {
                 </h1>
               </div>
               <p className="text-lg text-gray-600 font-medium leading-relaxed pl-1">
-                "SEIYA SEKATA Kita Taaruf"
+                "Temukan Pasangan Sejati yang Mengerti Kamu"
               </p>
             </div>
 
@@ -240,11 +240,7 @@ export default function AuthPage() {
                   </div>
                 </div>
 
-                <CardTitle className="text-2xl font-bold text-gray-900">Selamat Datang</CardTitle>
-                <CardDescription className="text-gray-500">
-                  Mulai perjalanan taaruf Anda menuju pernikahan yang bahagia
-                </CardDescription>
-
+                
                 {/* Mobile Only Promo Text */}
                 <div className="lg:hidden mt-3 px-3 py-1.5 bg-rose-50 border border-rose-100 rounded-lg flex items-center justify-center gap-2">
                   <Gift className="w-4 h-4 text-rose-500" />

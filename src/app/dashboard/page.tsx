@@ -110,6 +110,7 @@ export default function DashboardPage() {
   const [searchError, setSearchError] = useState('')
   const [isSearching, setIsSearching] = useState(false)
   const [timeLeft, setTimeLeft] = useState<{ days: number; hours: number; minutes: number } | null>(null)
+  const [endDateLabel, setEndDateLabel] = useState<string>("")
 
   useEffect(() => {
     loadDashboardData()
@@ -122,6 +123,21 @@ export default function DashboardPage() {
         updateCountdown(data.subscription.endDate)
       }, 60000) // Update every minute
       return () => clearInterval(interval)
+    }
+  }, [data?.subscription?.endDate])
+
+  useEffect(() => {
+    if (data?.subscription?.endDate) {
+      const d = new Date(data.subscription.endDate)
+      setEndDateLabel(
+        d.toLocaleDateString('id-ID', {
+          day: 'numeric',
+          month: 'long',
+          year: 'numeric',
+        })
+      )
+    } else {
+      setEndDateLabel("")
     }
   }, [data?.subscription?.endDate])
 
@@ -882,13 +898,9 @@ export default function DashboardPage() {
                         </div>
                       )}
 
-                      {data.subscription.endDate && (
+                      {endDateLabel && (
                         <p className="text-xs text-gray-500 text-center">
-                          Berakhir: {new Date(data.subscription.endDate).toLocaleDateString('id-ID', {
-                            day: 'numeric',
-                            month: 'long',
-                            year: 'numeric',
-                          })}
+                          Berakhir: {endDateLabel}
                         </p>
                       )}
                     </>

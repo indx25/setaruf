@@ -61,6 +61,10 @@ export default function ProfilePage() {
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [maxDob, setMaxDob] = useState<string>('')
+  useEffect(() => {
+    setMaxDob(new Date().toISOString().split('T')[0])
+  }, [])
 
   // Form State
   const [formData, setFormData] = useState<ProfileFormData>(INITIAL_FORM_STATE)
@@ -417,7 +421,7 @@ export default function ProfilePage() {
                     type="date"
                     value={formData.dateOfBirth}
                     onChange={(e) => handleChange('dateOfBirth', e.target.value)}
-                    max={new Date().toISOString().split("T")[0]}
+                    max={maxDob}
                   />
                 </div>
                 <div className="space-y-2">
