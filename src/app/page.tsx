@@ -405,7 +405,7 @@ export default function AuthPage() {
               <CardFooter className="flex justify-center relative z-10">
                 <p className="text-[11px] text-gray-500 text-center leading-tight">
                   Dengan mendaftar, Anda menyetujui <br/>
-                  <a href="/syarat-ketentuan" className="text-gray-700 underline cursor-pointer hover:text-rose-500 font-medium">Syarat & Ketentuan</a> serta <span className="text-gray-700 underline cursor-pointer hover:text-rose-500 font-medium">Kebijakan Privasi</span> kami
+                  <a href="/syarat-ketentuan" className="text-gray-700 underline cursor-pointer hover:text-rose-500 font-medium">Syarat & Ketentuan</a> serta <a href="/kebijakan-privasi" className="text-gray-700 underline cursor-pointer hover:text-rose-500 font-medium">Kebijakan Privasi</a> kami
                 </p>
               </CardFooter>
             </Card>
