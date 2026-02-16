@@ -184,7 +184,7 @@ export default function AuthPage() {
                 </h1>
               </div>
               <p className="text-lg text-gray-600 font-medium leading-relaxed pl-1">
-                "Temukan Pasangan Sejati yang Mengerti Kamu"
+                "Platform Setaruf untuk Pernikahan Serius"
               </p>
             </div>
 
@@ -413,15 +413,6 @@ export default function AuthPage() {
               </CardFooter>
             </Card>
 
-            <div className="mt-8 text-center lg:text-right">
-              <a
-                href="/cooledition"
-                className="text-xs font-medium text-gray-400 hover:text-rose-500 transition-colors flex items-center justify-center lg:justify-end gap-1.5"
-              >
-                <Shield className="w-3 h-3" />
-                © 2026 Setaruf. Produced and Developed by Indra Kadx.
-              </a>
-            </div>
           </div>
         </div>
       </div>
