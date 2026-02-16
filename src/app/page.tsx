@@ -249,6 +249,9 @@ export default function AuthPage() {
               </CardHeader>
 
               <CardContent className="relative z-10">
+                <p className="text-center text-sm font-semibold text-gray-700 mb-3">
+                  Temukan Pasangan Sejati yang Mengerti Kamu
+                </p>
                 <Tabs defaultValue="login" className="w-full">
                   <TabsList className="grid w-full grid-cols-2 bg-gray-100/50 border border-gray-200/50">
                     <TabsTrigger value="login">Login</TabsTrigger>
