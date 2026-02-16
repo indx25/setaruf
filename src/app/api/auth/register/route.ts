@@ -152,13 +152,7 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    // Set cookie sesi seperti proses login
-    response.cookies.set('userId', user.id, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7
-    })
+    // Sesi akan dikelola oleh NextAuth setelah sign-in di client
 
     return response
 

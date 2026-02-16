@@ -7,6 +7,12 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
+  env: {
+    NEXTAUTH_URL:
+      process.env.NODE_ENV === "production"
+        ? "https://setaruf.vercel.app"
+        : "http://localhost:3000",
+  },
 };
 
 export default nextConfig;

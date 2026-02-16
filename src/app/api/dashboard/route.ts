@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 
 export async function GET(request: NextRequest) {
   try {
-    // Get user from session cookie
-    const userId = request.cookies.get('userId')?.value
+    const session = await getServerSession(authOptions)
+    const userId = (session?.user as any)?.id
 
     if (!userId) {
       return NextResponse.json(
