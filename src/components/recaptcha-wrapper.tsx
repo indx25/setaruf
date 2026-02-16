@@ -1,7 +1,6 @@
 'use client'
 
 import { useGoogleReCaptcha } from 'react-google-recaptcha-v3'
-import { useEffect, useState } from 'react'
 
 interface RecaptchaWrapperProps {
   children: (executeRecaptcha: () => Promise<string>) => React.ReactNode
@@ -11,32 +10,18 @@ interface RecaptchaWrapperProps {
 
 export function RecaptchaWrapper({ children, onVerify, action }: RecaptchaWrapperProps) {
   const { executeRecaptcha } = useGoogleReCaptcha()
-  const [isReady, setIsReady] = useState(false)
-
-  useEffect(() => {
-    // Check if recaptcha is ready
-    if (executeRecaptcha) {
-      setIsReady(true)
-    }
-  }, [executeRecaptcha])
+  const isReady = !!executeRecaptcha
 
   const handleExecute = async (): Promise<string> => {
     if (!executeRecaptcha) {
       throw new Error('reCAPTCHA not ready')
     }
 
-    try {
-      const token = await executeRecaptcha(action)
-
-      if (onVerify) {
-        onVerify(token)
-      }
-
-      return token
-    } catch (error) {
-      console.error('reCAPTCHA execution error:', error)
-      throw new Error('reCAPTCHA verification failed')
+    const token = await executeRecaptcha(action)
+    if (onVerify) {
+      onVerify(token)
     }
+    return token
   }
 
   if (!isReady) {
