@@ -50,6 +50,15 @@ export default function RootLayout({
           {children}
         </AuthProvider>
         <Toaster />
+        <footer className="mt-8 border-t bg-white/70 backdrop-blur-sm">
+          <div className="container mx-auto max-w-6xl px-4 py-6 text-xs text-gray-500 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p>© {new Date().getFullYear()} Setaruf. Produced and Developed by Indra Kadx.</p>
+            <div className="flex items-center gap-4">
+              <a href="/syarat-ketentuan" className="underline hover:text-rose-500">Syarat & Ketentuan</a>
+              <a href="/kebijakan-privasi" className="underline hover:text-rose-500">Kebijakan Privasi</a>
+            </div>
+          </div>
+        </footer>
       </body>
     </html>
   );
