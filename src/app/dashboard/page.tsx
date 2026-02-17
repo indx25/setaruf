@@ -38,10 +38,7 @@ import {
   AlertTriangle,
   LogOut,
   Edit,
-  RotateCcw,
-  Calendar,
-  Save,
-  Loader2
+  RotateCcw
 } from 'lucide-react'
 import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -71,7 +68,6 @@ interface DashboardData {
     age?: number
     occupation?: string
     city?: string
-    dateOfBirth?: string // Tambahan interface untuk Tanggal Lahir
   } | null
   psychotests: Array<{
     testType: string
@@ -139,21 +135,9 @@ export default function DashboardPage() {
   const [cityQ, setCityQ] = useState<string>("")
   const [minMatch, setMinMatch] = useState<string>("any")
 
-  // State untuk Form Tanggal Lahir Baru
-  const [dob, setDob] = useState<string>("")
-  const [isUpdatingDob, setIsUpdatingDob] = useState(false)
-  const [dobMessage, setDobMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null)
-
   useEffect(() => {
     loadDashboardData()
   }, [])
-
-  // Set value DOB saat data dimuat
-  useEffect(() => {
-    if (data?.profile?.dateOfBirth) {
-      setDob(data.profile.dateOfBirth)
-    }
-  }, [data])
 
   // Heartbeat session: refresh every 10s
   useEffect(() => {
@@ -242,40 +226,6 @@ export default function DashboardPage() {
       console.error('Error loading dashboard:', error)
     } finally {
       setIsLoading(false)
-    }
-  }
-
-  // Fungsi Handler Update Tanggal Lahir
-  const handleUpdateDob = async () => {
-    if (!dob) {
-      setDobMessage({ type: 'error', text: 'Tanggal lahir wajib diisi.' })
-      return
-    }
-
-    setIsUpdatingDob(true)
-    setDobMessage(null)
-
-    try {
-      // Pastikan endpoint ini ada di backend Anda
-      const response = await fetch('/api/user/profile', {
-        method: 'PATCH', // atau POST tergantung backend
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dateOfBirth: dob }),
-      })
-
-      const result = await response.json()
-
-      if (response.ok) {
-        setDobMessage({ type: 'success', text: 'Tanggal lahir berhasil diperbarui.' })
-        // Refresh data dashboard untuk menampilkan data terbaru
-        loadDashboardData()
-      } else {
-        setDobMessage({ type: 'error', text: result.error || 'Gagal memperbarui tanggal lahir.' })
-      }
-    } catch (error) {
-      setDobMessage({ type: 'error', text: 'Terjadi kesalahan jaringan.' })
-    } finally {
-      setIsUpdatingDob(false)
     }
   }
 
@@ -624,36 +574,7 @@ export default function DashboardPage() {
                     <span className="text-gray-500">Domisili</span>
                     <span className="font-medium">{data?.profile?.city || '-'}</span>
                   </div>
-                  
-                  {/* --- TAMBAHAN FORM TANGGAL LAHIR --- */}
-                  <div className="pt-2 border-t">
-                    <Label htmlFor="dobInput" className="text-xs text-gray-500 mb-1 block">Tanggal Lahir</Label>
-                    <div className="flex gap-2">
-                      <Input 
-                        id="dobInput"
-                        type="date" 
-                        value={dob} 
-                        onChange={(e) => setDob(e.target.value)}
-                        className="text-sm h-8"
-                      />
-                      <Button 
-                        size="sm" 
-                        onClick={handleUpdateDob}
-                        disabled={isUpdatingDob || dob === data?.profile?.dateOfBirth}
-                        className="h-8 px-2"
-                      >
-                        {isUpdatingDob ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                      </Button>
-                    </div>
-                    {dobMessage && (
-                      <p className={`text-[10px] mt-1 ${dobMessage.type === 'error' ? 'text-red-500' : 'text-green-600'}`}>
-                        {dobMessage.text}
-                      </p>
-                    )}
-                  </div>
-                  {/* ----------------------------------- */}
-
-                  <div className="flex justify-between text-sm items-center pt-2">
+                  <div className="flex justify-between text-sm items-center">
                     <span className="text-gray-500">Kode Unik</span>
                     <Badge variant="outline" className="font-mono">
                       {data?.user.uniqueCode || '-'}
