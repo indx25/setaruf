@@ -1,18 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { 
   AlertCircle, 
   Heart, 
-  Users, 
-  ShieldCheck, 
-  Shield, 
   Cpu, 
   Moon, 
   Target, 
@@ -27,12 +24,17 @@ export default function AuthPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
 
+  // Refs untuk menyimpan fungsi eksekusi quiz agar bisa diakses dari handle submit
+  const loginQuizRef = useRef<(() => Promise<{ a: number; b: number; op: '+' | '-'; answer: number }>) | null>(null)
+  const registerQuizRef = useRef<(() => Promise<{ a: number; b: number; op: '+' | '-'; answer: number }>) | null>(null)
+
   // Login form state
   const [loginEmail, setLoginEmail] = useState('')
   const [loginPassword, setLoginPassword] = useState('')
 
   // Register form state
   const [registerEmail, setRegisterEmail] = useState('')
+  const [registerDateOfBirth, setRegisterDateOfBirth] = useState('') // State baru Tanggal Lahir
   const [registerPassword, setRegisterPassword] = useState('')
   const [registerConfirmPassword, setRegisterConfirmPassword] = useState('')
 
@@ -40,19 +42,24 @@ export default function AuthPage() {
   const uniqueFeatures = [
     { text: "AI based compatibility", icon: Cpu },
     { text: "Exclusive halal system", icon: Moon },
-    { text: "Tidak seperti dating app", icon: ShieldCheck },
+    { text: "Tidak seperti dating app", icon: AlertCircle }, // Menggunakan icon yang tersedia atau ganti jika perlu
     { text: "Serious marriage funnel", icon: Target },
     { text: "Psychological deep matching", icon: BrainCircuit },
     { text: "Structured taaruf flow", icon: GitCommit }
   ]
 
-  const handleLogin = async (e: React.FormEvent, executeQuiz: () => Promise<{ a: number; b: number; op: '+' | '-'; answer: number }>) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
     setIsLoading(true)
 
     try {
-      const quiz = await executeQuiz()
+      // Menggunakan ref untuk mengambil fungsi quiz
+      if (!loginQuizRef.current) {
+        throw new Error('Komponen verifikasi belum siap. Silakan refresh halaman.')
+      }
+
+      const quiz = await loginQuizRef.current()
       if (!quiz) {
         throw new Error('Verifikasi keamanan gagal. Silakan coba lagi.')
       }
@@ -74,12 +81,12 @@ export default function AuthPage() {
     }
   }
 
-  const handleRegister = async (e: React.FormEvent, executeQuiz: () => Promise<{ a: number; b: number; op: '+' | '-'; answer: number }>) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
 
     // Validasi
-    if (!registerEmail || !registerPassword) {
+    if (!registerEmail || !registerPassword || !registerDateOfBirth) {
       setError('Semua field wajib diisi')
       return
     }
@@ -101,11 +108,14 @@ export default function AuthPage() {
       return
     }
 
-
     setIsLoading(true)
 
     try {
-      const quiz = await executeQuiz()
+      if (!registerQuizRef.current) {
+        throw new Error('Komponen verifikasi belum siap. Silakan refresh halaman.')
+      }
+
+      const quiz = await registerQuizRef.current()
       if (!quiz) {
         throw new Error('Verifikasi keamanan gagal. Silakan coba lagi.')
       }
@@ -116,6 +126,7 @@ export default function AuthPage() {
         body: JSON.stringify({
           email: registerEmail,
           password: registerPassword,
+          dateOfBirth: registerDateOfBirth, // Mengirim Tanggal Lahir
           quiz
         }),
       })
@@ -240,99 +251,124 @@ export default function AuthPage() {
                   </TabsList>
                   
                   <TabsContent value="login">
-                    <MathQuizWrapper op="+">
-                      {(executeRecaptcha) => (
-                        <form onSubmit={(e) => handleLogin(e, executeRecaptcha)} className="space-y-4 mt-6">
-                          <div className="space-y-2">
-                            <Label htmlFor="login-email">Email</Label>
-                            <Input
-                              id="login-email"
-                              type="email"
-                              placeholder="nama@email.com"
-                              value={loginEmail}
-                              onChange={(e) => setLoginEmail(e.target.value)}
-                              required
+                    <form onSubmit={handleLogin} className="space-y-4 mt-6">
+                      <div className="space-y-2">
+                        <Label htmlFor="login-email">Email</Label>
+                        <Input
+                          id="login-email"
+                          type="email"
+                          placeholder="nama@email.com"
+                          value={loginEmail}
+                          onChange={(e) => setLoginEmail(e.target.value)}
+                          required
+                          disabled={isLoading}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <Label htmlFor="login-password">Password</Label>
+                          <a href="#" className="text-xs font-medium text-rose-600 hover:text-rose-500 hover:underline">Lupa password?</a>
+                        </div>
+                        <Input
+                          id="login-password"
+                          type="password"
+                          placeholder="••••••••"
+                          value={loginPassword}
+                          onChange={(e) => setLoginPassword(e.target.value)}
+                          required
+                          disabled={isLoading}
+                        />
+                      </div>
+
+                      {/* Verifikasi Dipindahkan ke sini */}
+                      <MathQuizWrapper op="+">
+                        {(executeRecaptcha) => {
+                          // Simpan fungsi ke ref saat render
+                          useEffect(() => { loginQuizRef.current = executeRecaptcha }, [executeRecaptcha])
+                          return (
+                            <Button
+                              type="submit"
+                              className="w-full h-11 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white shadow-lg shadow-rose-500/25 transition-all transform hover:scale-[1.01] active:scale-[0.98]"
                               disabled={isLoading}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                              <Label htmlFor="login-password">Password</Label>
-                              <a href="#" className="text-xs font-medium text-rose-600 hover:text-rose-500 hover:underline">Lupa password?</a>
-                            </div>
-                            <Input
-                              id="login-password"
-                              type="password"
-                              placeholder="••••••••"
-                              value={loginPassword}
-                              onChange={(e) => setLoginPassword(e.target.value)}
-                              required
-                              disabled={isLoading}
-                            />
-                          </div>
-                          <Button
-                            type="submit"
-                            className="w-full h-11 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white shadow-lg shadow-rose-500/25 transition-all transform hover:scale-[1.01] active:scale-[0.98]"
-                            disabled={isLoading}
-                          >
-                            {isLoading ? 'Memproses...' : 'Masuk'}
-                          </Button>
-                        </form>
-                      )}
-                    </MathQuizWrapper>
+                            >
+                              {isLoading ? 'Memproses...' : 'Masuk'}
+                            </Button>
+                          )
+                        }}
+                      </MathQuizWrapper>
+                    </form>
                   </TabsContent>
 
                   <TabsContent value="register">
-                    <MathQuizWrapper op="+">
-                      {(executeRecaptcha) => (
-                        <form onSubmit={(e) => handleRegister(e, executeRecaptcha)} className="space-y-4 mt-6">
-                          <div className="space-y-2">
-                            <Label htmlFor="register-email">Email</Label>
-                            <Input
-                              id="register-email"
-                              type="email"
-                              placeholder="nama@email.com"
-                              value={registerEmail}
-                              onChange={(e) => setRegisterEmail(e.target.value)}
-                              required
-                              disabled={isLoading}
-                            />
-                          </div>
+                    <form onSubmit={handleRegister} className="space-y-4 mt-6">
+                      <div className="space-y-2">
+                        <Label htmlFor="register-email">Email</Label>
+                        <Input
+                          id="register-email"
+                          type="email"
+                          placeholder="nama@email.com"
+                          value={registerEmail}
+                          onChange={(e) => setRegisterEmail(e.target.value)}
+                          required
+                          disabled={isLoading}
+                        />
+                      </div>
 
-                          <div className="space-y-2">
-                            <Label htmlFor="register-password">Password</Label>
-                            <Input
-                              id="register-password"
-                              type="password"
-                              placeholder="•••••••• (Minimal 8 karakter + simbol)"
-                              value={registerPassword}
-                              onChange={(e) => setRegisterPassword(e.target.value)}
-                              required
+                      {/* Field Tanggal Lahir Baru */}
+                      <div className="space-y-2">
+                        <Label htmlFor="register-dob">Tanggal Lahir</Label>
+                        <Input
+                          id="register-dob"
+                          type="date"
+                          value={registerDateOfBirth}
+                          onChange={(e) => setRegisterDateOfBirth(e.target.value)}
+                          required
+                          disabled={isLoading}
+                          max={new Date().toISOString().split("T")[0]} // Mencegah tanggal masa depan
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="register-password">Password</Label>
+                        <Input
+                          id="register-password"
+                          type="password"
+                          placeholder="•••••••• (Minimal 8 karakter + simbol)"
+                          value={registerPassword}
+                          onChange={(e) => setRegisterPassword(e.target.value)}
+                          required
+                          disabled={isLoading}
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="register-confirm-password">Konfirmasi Password</Label>
+                        <Input
+                          id="register-confirm-password"
+                          type="password"
+                          placeholder="••••••••"
+                          value={registerConfirmPassword}
+                          onChange={(e) => setRegisterConfirmPassword(e.target.value)}
+                          required
+                          disabled={isLoading}
+                        />
+                      </div>
+
+                      {/* Verifikasi Dipindahkan ke sini */}
+                      <MathQuizWrapper op="+">
+                        {(executeRecaptcha) => {
+                          useEffect(() => { registerQuizRef.current = executeRecaptcha }, [executeRecaptcha])
+                          return (
+                            <Button
+                              type="submit"
+                              className="w-full h-11 mt-2 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white shadow-lg shadow-rose-500/25 transition-all transform hover:scale-[1.01] active:scale-[0.98]"
                               disabled={isLoading}
-                            />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="register-confirm-password">Konfirmasi Password</Label>
-                            <Input
-                              id="register-confirm-password"
-                              type="password"
-                              placeholder="••••••••"
-                              value={registerConfirmPassword}
-                              onChange={(e) => setRegisterConfirmPassword(e.target.value)}
-                              required
-                              disabled={isLoading}
-                            />
-                          </div>
-                          <Button
-                            type="submit"
-                            className="w-full h-11 mt-2 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white shadow-lg shadow-rose-500/25 transition-all transform hover:scale-[1.01] active:scale-[0.98]"
-                            disabled={isLoading}
-                          >
-                            {isLoading ? 'Memproses...' : 'Daftar Sekarang'}
-                          </Button>
-                        </form>
-                      )}
-                    </MathQuizWrapper>
+                            >
+                              {isLoading ? 'Memproses...' : 'Daftar Sekarang'}
+                            </Button>
+                          )
+                        }}
+                      </MathQuizWrapper>
+                    </form>
                   </TabsContent>
                 </Tabs>
                 {error && (
@@ -341,20 +377,8 @@ export default function AuthPage() {
                     <AlertDescription>{error}</AlertDescription>
                   </Alert>
                 )}
-                <div className="mt-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <div className="h-px flex-1 bg-gray-200"></div>
-                    <span className="text-xs text-gray-500">atau</span>
-                    <div className="h-px flex-1 bg-gray-200"></div>
-                  </div>
-                  <Button
-                    type="button"
-                    onClick={() => signIn('google')}
-                    className="w-full h-11 bg-white text-gray-800 border border-gray-200 hover:bg-gray-50"
-                  >
-                    Masuk dengan Google
-                  </Button>
-                </div>
+                
+                {/* Bagian Tombol Google DIHAPUS */}
               </CardContent>
               
               <CardFooter className="flex justify-center relative z-10">
