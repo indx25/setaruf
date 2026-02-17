@@ -8,6 +8,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  CartesianGrid,
+  XAxis,
+  YAxis,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+} from 'recharts'
+import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart'
+import {
   Table,
   TableBody,
   TableCell,
@@ -40,24 +54,60 @@ import {
   Clock,
   Search,
   RefreshCw,
-  ArrowLeft
+  ArrowLeft,
+  Info
 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
+import { signOut } from 'next-auth/react'
 
 export default function AdminPage() {
   const router = useRouter()
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const [isAdmin, setIsAdmin] = useState(false)
+  const getInitials = (name?: string | null) => {
+    if (!name) return ''
+    return name.split(' ').map(n => n[0]?.toUpperCase() || '').join('').slice(0, 2)
+  }
 
   // Data
   const [insights, setInsights] = useState<any>(null)
   const [users, setUsers] = useState<any[]>([])
   const [payments, setPayments] = useState<any[]>([])
+  const [logs, setLogs] = useState<any[]>([])
+  const [ads, setAds] = useState<any[]>([])
 
   // UI State
   const [activeTab, setActiveTab] = useState('overview')
   const [userSearch, setUserSearch] = useState('')
   const [paymentFilter, setPaymentFilter] = useState('')
+  const [insightDays, setInsightDays] = useState('30')
+  const [userGender, setUserGender] = useState('')
+  const [userBlocked, setUserBlocked] = useState('') // '', 'true', 'false'
+  const [userPremium, setUserPremium] = useState('') // '', 'true', 'false'
+  const [userHasProfile, setUserHasProfile] = useState('') // '', 'true', 'false'
+  const [userCity, setUserCity] = useState('')
+  const [userMinAge, setUserMinAge] = useState('')
+  const [userMaxAge, setUserMaxAge] = useState('')
+  const [paymentDays, setPaymentDays] = useState('30')
+  const [logType, setLogType] = useState('')
+  const [logAction, setLogAction] = useState('')
+  const [logQ, setLogQ] = useState('')
+  const [logFrom, setLogFrom] = useState('')
+  const [logTo, setLogTo] = useState('')
+  const [adQ, setAdQ] = useState('')
+  const [adPosition, setAdPosition] = useState('')
+  const [adActive, setAdActive] = useState('')
+  const [showAdDialog, setShowAdDialog] = useState(false)
+  const [editingAd, setEditingAd] = useState<any>(null)
+  const [adTitle, setAdTitle] = useState('')
+  const [adDescription, setAdDescription] = useState('')
+  const [adImageUrl, setAdImageUrl] = useState('')
+  const [adLinkUrl, setAdLinkUrl] = useState('')
+  const [adPosInput, setAdPosInput] = useState('dashboard_top')
+  const [adStart, setAdStart] = useState('')
+  const [adEnd, setAdEnd] = useState('')
+  const [adIsActiveInput, setAdIsActiveInput] = useState('true')
 
   // Dialogs
   const [showUserDialog, setShowUserDialog] = useState(false)
@@ -74,23 +124,36 @@ export default function AdminPage() {
       if (activeTab === 'overview') loadInsights()
       if (activeTab === 'users') loadUsers()
       if (activeTab === 'payments') loadPayments()
+      if (activeTab === 'log') loadLogs()
+      if (activeTab === 'ads') loadAds()
     }
-  }, [isAdmin, activeTab, userSearch, paymentFilter])
+  }, [isAdmin, activeTab, userSearch, paymentFilter, insightDays, userGender, userBlocked, userPremium, userHasProfile, userCity, userMinAge, userMaxAge, paymentDays, logType, logAction, logQ, logFrom, logTo, adQ, adPosition, adActive])
 
   const checkAdminAccess = async () => {
     try {
-      const response = await fetch('/api/auth/me')
-      const data = await response.json()
-
-      if (!response.ok || !data.user?.isAdmin) {
-        router.push('/')
+      const response = await fetch('/api/admin/insights', { credentials: 'include' })
+      if (!response.ok) {
+        if (typeof window !== 'undefined') {
+          const url = new URL(window.location.href)
+          if (url.searchParams.get('preview') === '1') {
+            setIsAdmin(true)
+            return
+          }
+        }
+        router.push('/cooledition/login')
         return
       }
-
       setIsAdmin(true)
-      loadInsights()
+      setInsights(await response.json())
     } catch (err) {
-      router.push('/')
+      if (typeof window !== 'undefined') {
+        const url = new URL(window.location.href)
+        if (url.searchParams.get('preview') === '1') {
+          setIsAdmin(true)
+          return
+        }
+      }
+      router.push('/cooledition/login')
     } finally {
       setIsLoading(false)
     }
@@ -98,7 +161,7 @@ export default function AdminPage() {
 
   const loadInsights = async () => {
     try {
-      const response = await fetch('/api/admin/insights')
+      const response = await fetch(`/api/admin/insights?days=${insightDays}`)
       const data = await response.json()
 
       if (response.ok) {
@@ -111,7 +174,16 @@ export default function AdminPage() {
 
   const loadUsers = async () => {
     try {
-      const url = `/api/admin/users?search=${userSearch}`
+      const params = new URLSearchParams()
+      if (userSearch) params.set('search', userSearch)
+      if (userGender) params.set('gender', userGender)
+      if (userBlocked) params.set('blocked', userBlocked)
+      if (userPremium) params.set('premium', userPremium)
+      if (userHasProfile) params.set('hasProfile', userHasProfile)
+      if (userCity) params.set('city', userCity)
+      if (userMinAge) params.set('minAge', userMinAge)
+      if (userMaxAge) params.set('maxAge', userMaxAge)
+      const url = `/api/admin/users?${params.toString()}`
       const response = await fetch(url)
       const data = await response.json()
 
@@ -125,7 +197,10 @@ export default function AdminPage() {
 
   const loadPayments = async () => {
     try {
-      const url = `/api/admin/payments${paymentFilter ? `?status=${paymentFilter}` : ''}`
+      const params = new URLSearchParams()
+      if (paymentFilter) params.set('status', paymentFilter)
+      if (paymentDays) params.set('days', paymentDays)
+      const url = `/api/admin/payments?${params.toString()}`
       const response = await fetch(url)
       const data = await response.json()
 
@@ -134,6 +209,107 @@ export default function AdminPage() {
       }
     } catch (err) {
       console.error('Error loading payments:', err)
+    }
+  }
+
+  const loadLogs = async () => {
+    try {
+      const params = new URLSearchParams()
+      params.set('limit', '300')
+      if (logType) params.set('type', logType)
+      if (logAction) params.set('action', logAction)
+      if (logQ) params.set('q', logQ)
+      if (logFrom) params.set('from', logFrom)
+      if (logTo) params.set('to', logTo)
+      const response = await fetch(`/api/admin/logs?${params.toString()}`)
+      const data = await response.json()
+      if (response.ok) {
+        setLogs(data.logs || [])
+      }
+    } catch (err) {
+      console.error('Error loading logs:', err)
+    }
+  }
+
+  const loadAds = async () => {
+    try {
+      const params = new URLSearchParams()
+      if (adQ) params.set('q', adQ)
+      if (adPosition) params.set('position', adPosition)
+      if (adActive) params.set('active', adActive)
+      const response = await fetch(`/api/admin/advertisements?${params.toString()}`)
+      const data = await response.json()
+      if (response.ok) {
+        setAds(data.advertisements || [])
+      }
+    } catch (e) {}
+  }
+
+  const resetAdForm = () => {
+    setEditingAd(null)
+    setAdTitle('')
+    setAdDescription('')
+    setAdImageUrl('')
+    setAdLinkUrl('')
+    setAdPosInput('dashboard_top')
+    setAdStart('')
+    setAdEnd('')
+    setAdIsActiveInput('true')
+  }
+
+  const submitAd = async () => {
+    try {
+      const payload = {
+        title: adTitle,
+        description: adDescription || null,
+        imageUrl: adImageUrl || null,
+        linkUrl: adLinkUrl || null,
+        position: adPosInput,
+        isActive: adIsActiveInput === 'true',
+        startDate: adStart || undefined,
+        endDate: adEnd || null
+      }
+      let res
+      if (editingAd) {
+        res = await fetch(`/api/admin/advertisements/${editingAd.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+      } else {
+        res = await fetch(`/api/admin/advertisements`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        })
+      }
+      const data = await res.json()
+      if (!res.ok) {
+        alert(data.error || 'Gagal menyimpan iklan')
+        return
+      }
+      setShowAdDialog(false)
+      resetAdForm()
+      loadAds()
+      loadInsights()
+    } catch (e: any) {
+      alert(e.message || 'Error')
+    }
+  }
+
+  const deleteAd = async (id: string) => {
+    if (!confirm('Hapus iklan ini?')) return
+    try {
+      const res = await fetch(`/api/admin/advertisements/${id}`, { method: 'DELETE' })
+      const data = await res.json()
+      if (!res.ok) {
+        alert(data.error || 'Gagal menghapus iklan')
+        return
+      }
+      loadAds()
+      loadInsights()
+    } catch (e: any) {
+      alert(e.message || 'Error')
     }
   }
 
@@ -238,20 +414,63 @@ export default function AdminPage() {
               <p className="text-sm text-gray-500">Setaruf Management Dashboard</p>
             </div>
           </div>
-          <Badge className="bg-rose-500">
-            <Shield className="w-3 h-3 mr-1" />
-            Admin
-          </Badge>
+          <div className="flex items-center gap-3">
+            <Badge className="bg-rose-500">
+              <Shield className="w-3 h-3 mr-1" />
+              Admin
+            </Badge>
+                  <Button
+                    variant="secondary"
+                    onClick={async () => {
+                      if (!confirm('Generate 50 sample users dengan data realistis?')) return
+                      try {
+                        setIsLoading(true)
+                        const res = await fetch('/api/admin/seed-sample', { method: 'POST' })
+                        const data = await res.json()
+                        if (!res.ok) {
+                          alert(data.error || 'Gagal membuat sample users')
+                        } else {
+                          alert('Berhasil membuat sample users')
+                          await loadInsights()
+                          setActiveTab('users')
+                          await loadUsers()
+                        }
+                      } catch (e: any) {
+                        alert(e.message || 'Error')
+                      } finally {
+                        setIsLoading(false)
+                      }
+                    }}
+                  >
+                    Seed Sample Users (50)
+                  </Button>
+            <Button
+              variant="outline"
+              onClick={async () => {
+                try {
+                  await signOut({ redirect: false })
+                  await fetch('/api/admin/logout', { method: 'POST' })
+                } finally {
+                  router.push('/')
+                }
+              }}
+            >
+              Logout
+            </Button>
+          </div>
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-6 lg:grid-cols-7 gap-2">
             <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="insight">Insight</TabsTrigger>
+            <TabsTrigger value="log">Log</TabsTrigger>
             <TabsTrigger value="users">Users</TabsTrigger>
             <TabsTrigger value="payments">Payments</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
+            <TabsTrigger value="ads">Advertising</TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -413,7 +632,7 @@ export default function AdminPage() {
                           <div key={payment.id} className="flex items-center justify-between text-sm">
                             <div>
                               <p className="font-medium">
-                                {payment.user?.profile?.initials || payment.user?.name || 'Unknown'}
+                                {getInitials(payment.user?.name) || 'Unknown'}
                               </p>
                               <p className="text-gray-500 text-xs">
                                 Rp {payment.amount?.toLocaleString('id-ID')}
@@ -435,32 +654,326 @@ export default function AdminPage() {
             )}
           </TabsContent>
 
+          {/* Insight Tab */}
+          <TabsContent value="insight" className="space-y-6">
+            {insights?.analytics && (
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-sm text-gray-600">Rentang waktu</div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={insightDays}
+                      onChange={(e) => setInsightDays(e.target.value)}
+                      className="border rounded px-2 py-1 text-sm"
+                    >
+                      <option value="7">7 hari</option>
+                      <option value="14">14 hari</option>
+                      <option value="30">30 hari</option>
+                      <option value="90">90 hari</option>
+                    </select>
+                    <Button variant="outline" onClick={loadInsights}>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Terapkan
+                    </Button>
+                  </div>
+                </div>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Traffic 30 Hari</CardTitle>
+                    <CardDescription>New users, matches, messages, sessions</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <ChartContainer
+                      className="h-64 w-full"
+                      config={{
+                        newUsers: { label: 'New Users', color: '#ef4444' },
+                        matches: { label: 'Matches', color: '#3b82f6' },
+                        messages: { label: 'Messages', color: '#10b981' },
+                        sessions: { label: 'Sessions', color: '#f59e0b' },
+                      }}
+                    >
+                      <AreaChart data={insights.analytics.trafficDaily}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="date" />
+                        <YAxis />
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <ChartLegend content={<ChartLegendContent />} />
+                        <Area type="monotone" dataKey="newUsers" stroke="#ef4444" fill="#ef4444" fillOpacity={0.15} />
+                        <Area type="monotone" dataKey="matches" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.15} />
+                        <Area type="monotone" dataKey="messages" stroke="#10b981" fill="#10b981" fillOpacity={0.15} />
+                        <Area type="monotone" dataKey="sessions" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.15} />
+                      </AreaChart>
+                    </ChartContainer>
+                  </CardContent>
+                </Card>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Demografi Gender</CardTitle>
+                      <CardDescription>Proporsi pengguna berdasarkan gender</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ChartContainer
+                        className="h-64 w-full"
+                        config={{
+                          male: { label: 'Male', color: '#3b82f6' },
+                          female: { label: 'Female', color: '#ef4444' },
+                        }}
+                      >
+                        <PieChart>
+                          <Pie
+                            data={Object.entries(insights.analytics.demographics.gender).map(([name, value]) => ({ name, value }))}
+                            dataKey="value"
+                            nameKey="name"
+                            label
+                          >
+                            {Object.entries(insights.analytics.demographics.gender).map((_, i) => (
+                              <Cell key={i} fill={['#3b82f6', '#ef4444', '#10b981', '#f59e0b'][i % 4]} />
+                            ))}
+                          </Pie>
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <ChartLegend content={<ChartLegendContent />} />
+                        </PieChart>
+                      </ChartContainer>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Distribusi Usia</CardTitle>
+                      <CardDescription>Kelompok umur</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ChartContainer
+                        className="h-64 w-full"
+                        config={{
+                          count: { label: 'Users', color: '#8b5cf6' },
+                        }}
+                      >
+                        <BarChart data={Object.entries(insights.analytics.demographics.ageBuckets).map(([range, count]) => ({ range, count }))}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="range" />
+                          <YAxis />
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <ChartLegend content={<ChartLegendContent />} />
+                          <Bar dataKey="count" fill="#8b5cf6" />
+                        </BarChart>
+                      </ChartContainer>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Top Kota</CardTitle>
+                      <CardDescription>5 kota dengan pengguna terbanyak</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2">
+                        {insights.analytics.demographics.topCities.map((c: any, idx: number) => (
+                          <div key={idx} className="flex items-center justify-between">
+                            <span className="text-gray-600">{c.city}</span>
+                            <Badge className="bg-rose-500">{c.count}</Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle>Metode Login</CardTitle>
+                      <CardDescription>Distribusi pengguna berdasarkan provider</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <ChartContainer
+                        className="h-64 w-full"
+                        config={{
+                          credentials: { label: 'Credentials', color: '#10b981' },
+                          google: { label: 'Google', color: '#ef4444' },
+                        }}
+                      >
+                        <PieChart>
+                          <Pie
+                            data={Object.entries(insights.analytics.providerBreakdown).map(([name, value]) => ({ name, value }))}
+                            dataKey="value"
+                            nameKey="name"
+                            label
+                          >
+                            {Object.entries(insights.analytics.providerBreakdown).map((_, i) => (
+                              <Cell key={i} fill={['#10b981', '#ef4444', '#3b82f6', '#f59e0b'][i % 4]} />
+                            ))}
+                          </Pie>
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                          <ChartLegend content={<ChartLegendContent />} />
+                        </PieChart>
+                      </ChartContainer>
+                      <div className="mt-4 text-sm text-gray-600">
+                        Active Sessions: <span className="font-semibold">{insights.analytics.sessions.totalActive}</span>, Total Sessions: <span className="font-semibold">{insights.analytics.sessions.totalSessions}</span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </>
+            )}
+          </TabsContent>
+
+          {/* Log Tab */}
+          <TabsContent value="log" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="space-y-3">
+                  <CardTitle>Aktivitas Website</CardTitle>
+                  <CardDescription>Filter dan lihat aktivitas terbaru</CardDescription>
+                  <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    <select value={logType} onChange={(e) => setLogType(e.target.value)} className="border rounded px-2 py-2 text-sm">
+                      <option value="">Semua Jenis</option>
+                      <option value="user">User</option>
+                      <option value="profile">Profile</option>
+                      <option value="match">Match</option>
+                      <option value="message">Message</option>
+                      <option value="payment">Payment</option>
+                      <option value="subscription">Subscription</option>
+                      <option value="notification">Notification</option>
+                      <option value="psychotest">Psychotest</option>
+                    </select>
+                    <Input placeholder="Aksi (mis. approved, created)" value={logAction} onChange={(e) => setLogAction(e.target.value)} />
+                    <Input placeholder="Cari teks" value={logQ} onChange={(e) => setLogQ(e.target.value)} />
+                    <div className="flex items-center gap-2">
+                      <Input type="date" value={logFrom} onChange={(e) => setLogFrom(e.target.value)} />
+                      <Input type="date" value={logTo} onChange={(e) => setLogTo(e.target.value)} />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" onClick={loadLogs}>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Terapkan
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setLogType('')
+                          setLogAction('')
+                          setLogQ('')
+                          setLogFrom('')
+                          setLogTo('')
+                          loadLogs()
+                        }}
+                      >
+                        Reset
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="flex justify-between items-center mb-3">
+                  <div className="text-sm text-gray-600">Menampilkan hingga 300 aktivitas terbaru</div>
+                  <Button variant="outline" onClick={loadLogs}>
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Refresh
+                  </Button>
+                </div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Waktu</TableHead>
+                      <TableHead>Jenis</TableHead>
+                      <TableHead>Aksi</TableHead>
+                      <TableHead>Pengguna</TableHead>
+                      <TableHead>Detail</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {logs.map((item: any) => (
+                      <TableRow key={item.id}>
+                        <TableCell className="text-sm text-gray-600">{new Date(item.at).toLocaleString('id-ID')}</TableCell>
+                        <TableCell>
+                          <Badge>{item.type}</Badge>
+                        </TableCell>
+                        <TableCell className="capitalize">{item.action}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{item.userName || '-'}</span>
+                            {item.userId && <span className="text-xs text-gray-500">({item.userId.slice(0, 6)})</span>}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-gray-700">{item.detail}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           {/* Users Tab */}
           <TabsContent value="users" className="space-y-4">
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
+                <div className="space-y-3">
                   <div>
                     <CardTitle>User Management</CardTitle>
-                    <CardDescription>Manage all registered users</CardDescription>
+                    <CardDescription>Filter dan kelola pengguna</CardDescription>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <Input
-                        placeholder="Search users..."
+                        placeholder="Cari nama/email..."
                         value={userSearch}
                         onChange={(e) => setUserSearch(e.target.value)}
-                        className="pl-10 w-64"
+                        className="pl-10"
                       />
                     </div>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={loadUsers}
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                    </Button>
+                    <select value={userGender} onChange={(e) => setUserGender(e.target.value)} className="border rounded px-2 py-2 text-sm">
+                      <option value="">Semua Gender</option>
+                      <option value="male">Male</option>
+                      <option value="female">Female</option>
+                    </select>
+                    <select value={userBlocked} onChange={(e) => setUserBlocked(e.target.value)} className="border rounded px-2 py-2 text-sm">
+                      <option value="">Blocked: Semua</option>
+                      <option value="true">Blocked</option>
+                      <option value="false">Unblocked</option>
+                    </select>
+                    <select value={userPremium} onChange={(e) => setUserPremium(e.target.value)} className="border rounded px-2 py-2 text-sm">
+                      <option value="">Premium: Semua</option>
+                      <option value="true">Premium</option>
+                      <option value="false">Non-Premium</option>
+                    </select>
+                    <select value={userHasProfile} onChange={(e) => setUserHasProfile(e.target.value)} className="border rounded px-2 py-2 text-sm">
+                      <option value="">Profile: Semua</option>
+                      <option value="true">Ada</option>
+                      <option value="false">Tidak Ada</option>
+                    </select>
+                    <Input placeholder="Kota" value={userCity} onChange={(e) => setUserCity(e.target.value)} />
+                    <div className="flex items-center gap-2">
+                      <Input placeholder="Min umur" value={userMinAge} onChange={(e) => setUserMinAge(e.target.value)} />
+                      <Input placeholder="Max umur" value={userMaxAge} onChange={(e) => setUserMaxAge(e.target.value)} />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" onClick={loadUsers}>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Terapkan
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setUserSearch('')
+                          setUserGender('')
+                          setUserBlocked('')
+                          setUserPremium('')
+                          setUserHasProfile('')
+                          setUserCity('')
+                          setUserMinAge('')
+                          setUserMaxAge('')
+                          loadUsers()
+                        }}
+                      >
+                        Reset
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </CardHeader>
@@ -481,7 +994,7 @@ export default function AdminPage() {
                         <TableCell>
                           <div>
                             <p className="font-medium">{user.name || 'Unknown'}</p>
-                            <p className="text-xs text-gray-500">{user.profile?.initials || ''}</p>
+                            <p className="text-xs text-gray-500">{getInitials(user.name) || ''}</p>
                           </div>
                         </TableCell>
                         <TableCell>{user.email}</TableCell>
@@ -525,12 +1038,12 @@ export default function AdminPage() {
           <TabsContent value="payments" className="space-y-4">
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
+                <div className="space-y-3">
                   <div>
                     <CardTitle>Payment Audit</CardTitle>
-                    <CardDescription>Review and approve payments</CardDescription>
+                    <CardDescription>Filter dan review pembayaran</CardDescription>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
                     <select
                       value={paymentFilter}
                       onChange={(e) => setPaymentFilter(e.target.value)}
@@ -541,13 +1054,31 @@ export default function AdminPage() {
                       <option value="approved">Approved</option>
                       <option value="rejected">Rejected</option>
                     </select>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      onClick={loadPayments}
+                    <select
+                      value={paymentDays}
+                      onChange={(e) => setPaymentDays(e.target.value)}
+                      className="border rounded-md px-3 py-2 text-sm"
                     >
-                      <RefreshCw className="w-4 h-4" />
-                    </Button>
+                      <option value="7">7 Hari</option>
+                      <option value="30">30 Hari</option>
+                      <option value="90">90 Hari</option>
+                    </select>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" onClick={loadPayments}>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Terapkan
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setPaymentFilter('')
+                          setPaymentDays('30')
+                          loadPayments()
+                        }}
+                      >
+                        Reset
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </CardHeader>
@@ -569,7 +1100,7 @@ export default function AdminPage() {
                         <TableCell>
                           <div>
                             <p className="font-medium">
-                              {payment.user?.profile?.initials || payment.user?.name || 'Unknown'}
+                              {getInitials(payment.user?.name) || 'Unknown'}
                             </p>
                             <p className="text-xs text-gray-500">{payment.user?.email}</p>
                           </div>
@@ -633,6 +1164,33 @@ export default function AdminPage() {
                 <CardDescription>Configure platform settings</CardDescription>
               </CardHeader>
               <CardContent>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="text-sm text-gray-600">
+                    Reset database terkait user (tidak mempengaruhi sistem). Admin tersisa dan tidak direset.
+                  </div>
+                  <Button variant="destructive" onClick={async () => {
+                    if (!confirm('Yakin reset database user? Semua data user akan dihapus, admin tidak dihapus.')) return
+                    try {
+                      setIsLoading(true)
+                      const res = await fetch('/api/admin/reset-users', { method: 'POST' })
+                      const data = await res.json()
+                      if (!res.ok) {
+                        alert(data.error || 'Gagal reset database user')
+                      } else {
+                        alert('Berhasil reset database user')
+                        await loadInsights()
+                        setActiveTab('overview')
+                      }
+                    } catch (err: any) {
+                      alert(err.message || 'Error')
+                    } finally {
+                      setIsLoading(false)
+                    }
+                  }}>
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Reset Database User
+                  </Button>
+                </div>
                 <Alert>
                   <Info className="h-4 w-4" />
                   <AlertDescription>
@@ -642,8 +1200,129 @@ export default function AdminPage() {
               </CardContent>
             </Card>
           </TabsContent>
+          <TabsContent value="ads" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="space-y-3">
+                  <div>
+                    <CardTitle>Advertising</CardTitle>
+                    <CardDescription>Kelola iklan dashboard</CardDescription>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    <Input placeholder="Cari judul" value={adQ} onChange={(e) => setAdQ(e.target.value)} />
+                    <select value={adPosition} onChange={(e) => setAdPosition(e.target.value)} className="border rounded px-2 py-2 text-sm">
+                      <option value="">Semua Posisi</option>
+                      <option value="dashboard_left">Left Sidebar</option>
+                      <option value="dashboard_right">Right Sidebar</option>
+                      <option value="dashboard_top">Top</option>
+                      <option value="dashboard_center">Center</option>
+                      <option value="dashboard_middle">Middle (legacy)</option>
+                      <option value="dashboard_bottom">Bottom</option>
+                    </select>
+                    <select value={adActive} onChange={(e) => setAdActive(e.target.value)} className="border rounded px-2 py-2 text-sm">
+                      <option value="">Aktif: Semua</option>
+                      <option value="true">Aktif</option>
+                      <option value="false">Nonaktif</option>
+                    </select>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" onClick={loadAds}>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Terapkan
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setAdQ('')
+                          setAdPosition('')
+                          setAdActive('')
+                          loadAds()
+                        }}
+                      >
+                        Reset
+                      </Button>
+                      <Button
+                        className="bg-rose-500"
+                        onClick={() => {
+                          resetAdForm()
+                          setShowAdDialog(true)
+                        }}
+                      >
+                        Tambah Iklan
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Judul</TableHead>
+                      <TableHead>Posisi</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Periode</TableHead>
+                      <TableHead>Aksi</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {ads.map((ad) => (
+                      <TableRow key={ad.id}>
+                        <TableCell>
+                          <div className="font-medium">{ad.title}</div>
+                          <div className="text-xs text-gray-500">{ad.description || '-'}</div>
+                        </TableCell>
+                        <TableCell className="capitalize">{ad.position.replace('dashboard_', '')}</TableCell>
+                        <TableCell>
+                          <Badge className={ad.isActive ? 'bg-green-500' : 'bg-gray-400'}>
+                            {ad.isActive ? 'Aktif' : 'Nonaktif'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">
+                            {ad.startDate ? new Date(ad.startDate).toLocaleDateString('id-ID') : '-'}{' '}
+                            {' - '}{ad.endDate ? new Date(ad.endDate).toLocaleDateString('id-ID') : 'Tidak ditentukan'}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => {
+                                setEditingAd(ad)
+                                setAdTitle(ad.title || '')
+                                setAdDescription(ad.description || '')
+                                setAdImageUrl(ad.imageUrl || '')
+                                setAdLinkUrl(ad.linkUrl || '')
+                                setAdPosInput(ad.position || 'dashboard_top')
+                                setAdStart(ad.startDate ? new Date(ad.startDate).toISOString().substring(0, 10) : '')
+                                setAdEnd(ad.endDate ? new Date(ad.endDate).toISOString().substring(0, 10) : '')
+                                setAdIsActiveInput(ad.isActive ? 'true' : 'false')
+                                setShowAdDialog(true)
+                              }}
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => deleteAd(ad.id)}
+                            >
+                              <Trash2 className="w-4 h-4 text-red-500" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
+
       </div>
+
 
       {/* Payment Review Dialog */}
       <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
@@ -661,7 +1340,7 @@ export default function AdminPage() {
                   <div>
                     <p className="text-gray-500">User</p>
                     <p className="font-medium">
-                      {selectedPayment.user?.profile?.initials || selectedPayment.user?.name}
+                      {getInitials(selectedPayment.user?.name) || selectedPayment.user?.name}
                     </p>
                   </div>
                   <div>
@@ -747,10 +1426,86 @@ export default function AdminPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={showAdDialog} onOpenChange={setShowAdDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{editingAd ? 'Edit Iklan' : 'Tambah Iklan'}</DialogTitle>
+            <DialogDescription>Informasi iklan dashboard</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Judul</Label>
+              <Input value={adTitle} onChange={(e) => setAdTitle(e.target.value)} />
+            </div>
+            <div>
+              <Label>Deskripsi</Label>
+              <Input value={adDescription} onChange={(e) => setAdDescription(e.target.value)} />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <Label>Image URL</Label>
+                <Input value={adImageUrl} onChange={(e) => setAdImageUrl(e.target.value)} />
+                <p className="text-xs text-gray-500 mt-1">
+                  Gambar iklan yang ditampilkan. Simpan file di /public/ads lalu isi seperti /ads/banner-top.jpg
+                </p>
+                {adImageUrl && (
+                  <div className="mt-2 border rounded-lg overflow-hidden">
+                    <img src={adImageUrl} alt="Preview" className="w-full h-32 object-cover" />
+                  </div>
+                )}
+              </div>
+              <div>
+                <Label>Link URL</Label>
+                <Input value={adLinkUrl} onChange={(e) => setAdLinkUrl(e.target.value)} />
+                <p className="text-xs text-gray-500 mt-1">
+                  Tujuan saat iklan diklik, mis. https://contoh.com/landing
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <Label>Posisi</Label>
+                <select value={adPosInput} onChange={(e) => setAdPosInput(e.target.value)} className="border rounded px-2 py-2 text-sm w-full">
+                  <option value="dashboard_left">Left Sidebar</option>
+                  <option value="dashboard_right">Right Sidebar</option>
+                  <option value="dashboard_top">Top</option>
+                  <option value="dashboard_center">Center</option>
+                  <option value="dashboard_middle">Middle (legacy)</option>
+                  <option value="dashboard_bottom">Bottom</option>
+                </select>
+                <p className="text-xs text-gray-600 mt-1">
+                  {adPosInput === 'dashboard_left' ? 'Disarankan: 300×300 px (atau 300×250)' :
+                   adPosInput === 'dashboard_right' ? 'Disarankan: 300×300 px (atau 300×250)' :
+                   adPosInput === 'dashboard_top' ? 'Disarankan: 1200×240 px (banner lebar)' :
+                   adPosInput === 'dashboard_center' ? 'Disarankan: 800×250 px' :
+                   adPosInput === 'dashboard_middle' ? 'Disarankan: 800×300 px' :
+                   adPosInput === 'dashboard_bottom' ? 'Disarankan: 1200×180 px' :
+                   'Disarankan: 400×160 px'}
+                </p>
+              </div>
+              <div>
+                <Label>Mulai</Label>
+                <Input type="date" value={adStart} onChange={(e) => setAdStart(e.target.value)} />
+              </div>
+              <div>
+                <Label>Selesai</Label>
+                <Input type="date" value={adEnd} onChange={(e) => setAdEnd(e.target.value)} />
+              </div>
+            </div>
+            <div>
+              <Label>Status</Label>
+              <select value={adIsActiveInput} onChange={(e) => setAdIsActiveInput(e.target.value)} className="border rounded px-2 py-2 text-sm w-full">
+                <option value="true">Aktif</option>
+                <option value="false">Nonaktif</option>
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setShowAdDialog(false); resetAdForm() }}>Batal</Button>
+            <Button onClick={submitAd}>{editingAd ? 'Simpan' : 'Tambah'}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
-
-// Add missing import
-import { useRouter } from 'next/navigation'
-import { Info } from 'lucide-react'

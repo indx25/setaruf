@@ -20,7 +20,11 @@ export async function GET(request: NextRequest) {
       where: { userId }
     })
 
-    return NextResponse.json({ profile })
+    if (!profile) {
+      return NextResponse.json({ profile: null })
+    }
+    const { phone: _phone, email: _email, initials: _initials, ...safeProfile } = profile as any
+    return NextResponse.json({ profile: safeProfile })
 
   } catch (error) {
     console.error('Get profile error:', error)
@@ -45,6 +49,9 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await request.json()
+    delete (data as any).phone
+    delete (data as any).email
+    delete (data as any).initials
 
     // Cek apakah profile sudah ada
     const existingProfile = await db.profile.findUnique({
@@ -80,10 +87,11 @@ export async function POST(request: NextRequest) {
       })
     }
 
+    const { phone: _phone, email: _email, ...safeProfile } = profile as any
     return NextResponse.json({
       success: true,
       message: 'Biodata berhasil disimpan',
-      profile
+      profile: safeProfile
     })
 
   } catch (error) {

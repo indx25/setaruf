@@ -231,7 +231,7 @@ export default function ChatPage() {
     )
   }
 
-  const otherUserInitials = otherUser.profile?.initials || getInitials(otherUser.name || '')
+  const otherUserInitials = getInitials(otherUser.name || '')
 
   return (
     <div className="h-screen flex flex-col bg-gray-50">

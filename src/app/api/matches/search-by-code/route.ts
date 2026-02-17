@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import ZAI from 'z-ai-web-dev-sdk'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 
 // Helper function to calculate match percentage based on psychotest scores
 function calculateMatchPercentage(
@@ -46,8 +48,8 @@ function calculateMatchPercentage(
 
 export async function POST(request: NextRequest) {
   try {
-    // Get user from session cookie
-    const userId = request.cookies.get('userId')?.value
+    const session = await getServerSession(authOptions)
+    const userId = (session?.user as any)?.id as string | undefined
 
     if (!userId) {
       return NextResponse.json(
@@ -200,7 +202,6 @@ Berikan alasan dalam 1-2 kalimat dalam Bahasa Indonesia.`
     return NextResponse.json({
       id: targetUser.id,
       name: targetUser.name || 'Unknown',
-      initials: targetUser.profile?.initials,
       avatar: targetUser.avatar,
       age: targetUser.profile?.age,
       occupation: targetUser.profile?.occupation,

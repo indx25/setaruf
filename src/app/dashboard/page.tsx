@@ -6,9 +6,11 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
+import { signOut } from 'next-auth/react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,7 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts'
-import {
+import { 
   Home,
   User,
   MessageSquare,
@@ -38,6 +40,8 @@ import {
   Edit,
   RotateCcw
 } from 'lucide-react'
+import { Progress } from '@/components/ui/progress'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 interface DashboardData {
   user: {
@@ -48,8 +52,18 @@ interface DashboardData {
     uniqueCode: string
     workflowStatus: string
   }
+  flags?: {
+    profileCompleted: boolean
+    psychotestCompleted: boolean
+    matchingAvailable: boolean
+  }
+  progress?: {
+    profileCompletionPercent: number
+    psychotestCompletionPercent: number
+    psychotestCompletedCount: number
+    psychotestRequiredCount: number
+  }
   profile: {
-    initials?: string
     fullName?: string
     age?: number
     occupation?: string
@@ -69,12 +83,13 @@ interface DashboardData {
     id: string
     targetId: string
     targetName: string
-    targetInitials?: string
     targetAvatar?: string
     targetAge?: number
     targetOccupation?: string
     targetCity?: string
     matchPercentage: number
+    matchStatus?: string
+    matchStep?: string
   }>
   notifications: number
   advertisements: Array<{
@@ -82,6 +97,7 @@ interface DashboardData {
     title: string
     imageUrl?: string
     linkUrl?: string
+    position: 'dashboard_top' | 'dashboard_middle' | 'dashboard_bottom' | 'dashboard_left' | 'dashboard_right' | 'dashboard_center'
   }>
 }
 
@@ -111,10 +127,46 @@ export default function DashboardPage() {
   const [isSearching, setIsSearching] = useState(false)
   const [timeLeft, setTimeLeft] = useState<{ days: number; hours: number; minutes: number } | null>(null)
   const [endDateLabel, setEndDateLabel] = useState<string>("")
+  const [notifItems, setNotifItems] = useState<Array<{ id: string; title: string; message: string; link?: string | null; isRead: boolean; createdAt: string; type: string }>>([])
+  const [isLoadingNotif, setIsLoadingNotif] = useState(false)
+  const [isNotifOpen, setIsNotifOpen] = useState(false)
+  const [ageMin, setAgeMin] = useState<string>("")
+  const [ageMax, setAgeMax] = useState<string>("")
+  const [cityQ, setCityQ] = useState<string>("")
+  const [minMatch, setMinMatch] = useState<string>("any")
 
   useEffect(() => {
     loadDashboardData()
   }, [])
+
+  // Heartbeat session: refresh every 10s
+  useEffect(() => {
+    let active = true
+    const tick = async () => {
+      try {
+        await fetch('/api/session/heartbeat')
+      } catch {}
+    }
+    tick()
+    const id = setInterval(() => active && tick(), 10_000)
+    return () => {
+      active = false
+      clearInterval(id)
+    }
+  }, [])
+  const loadNotifications = async () => {
+    try {
+      setIsLoadingNotif(true)
+      const res = await fetch('/api/notifications')
+      const data = await res.json()
+      if (res.ok && data.notifications) {
+        setNotifItems(data.notifications)
+      }
+    } finally {
+      setIsLoadingNotif(false)
+    }
+  }
+  useEffect(() => { loadNotifications() }, [])
 
   useEffect(() => {
     if (data?.subscription?.endDate) {
@@ -215,7 +267,16 @@ export default function DashboardPage() {
 
   const getWorkflowIndex = () => {
     if (!data) return 0
-    return workflowSteps.findIndex(step => step.key === data.user.workflowStatus)
+    const hasProfile = data.flags ? data.flags.profileCompleted : !!data.profile
+    const hasPsychotests = data.flags ? data.flags.psychotestCompleted : ((data.psychotests?.length || 0) > 0)
+    const hasMatches = data.flags ? data.flags.matchingAvailable : ((data.matches?.length || 0) > 0)
+
+    if (!hasProfile) return workflowSteps.findIndex(s => s.key === 'biodata')
+    if (!hasPsychotests) return workflowSteps.findIndex(s => s.key === 'psychotest')
+    if (!hasMatches) return workflowSteps.findIndex(s => s.key === 'matching')
+
+    const byStatus = workflowSteps.findIndex(s => s.key === data.user.workflowStatus)
+    return byStatus >= 0 ? byStatus : workflowSteps.findIndex(s => s.key === 'view_profile')
   }
 
   const currentWorkflowIndex = getWorkflowIndex()
@@ -236,6 +297,42 @@ export default function DashboardPage() {
   const isSubscriptionExpired = data?.subscription && data.subscription.endDate
     ? new Date(data.subscription.endDate) < new Date()
     : !data?.subscription?.isActive
+  const displayedMatches = (() => {
+    const list = [...(data?.matches || [])]
+    const profileAge = data?.profile?.age
+    const defaultMinA = typeof profileAge === 'number' ? Math.max(18, profileAge - 5) : undefined
+    const defaultMaxA = typeof profileAge === 'number' ? profileAge + 5 : undefined
+    const minA = ageMin ? parseInt(ageMin) : defaultMinA
+    const maxA = ageMax ? parseInt(ageMax) : defaultMaxA
+    const defaultCity = (data?.profile?.city || '').toLowerCase()
+    const cityPref = (cityQ || defaultCity).toLowerCase()
+    const minP = minMatch === 'any' ? NaN : parseInt(minMatch)
+    const filterList = (arr: any[], aMin?: number, aMax?: number, cityStr?: string, pMin?: number) => {
+      const cityLower = (cityStr || '').toLowerCase()
+      const res = arr.filter(m => {
+        const okAgeMin = aMin === undefined ? true : (m.targetAge ?? -Infinity) >= aMin
+        const okAgeMax = aMax === undefined ? true : (m.targetAge ?? Infinity) <= aMax
+        const okCity = cityLower ? (m.targetCity || '').toLowerCase().includes(cityLower) : true
+        const okPercent = pMin === undefined || isNaN(pMin) ? true : (m.matchPercentage ?? 0) >= pMin
+        return okAgeMin && okAgeMax && okCity && okPercent
+      })
+      res.sort((a,b) => (b.matchPercentage ?? 0) - (a.matchPercentage ?? 0))
+      return res
+    }
+    let step = filterList(list, minA, maxA, cityPref, minP)
+    if (step.length >= 10) return step.slice(0, 10)
+    step = filterList(list, minA, maxA, undefined, minP)
+    if (step.length >= 10) return step.slice(0, 10)
+    const expandedMin = typeof minA === 'number' ? Math.max(18, minA - 5) : minA
+    const expandedMax = typeof maxA === 'number' ? (maxA + 5) : maxA
+    step = filterList(list, expandedMin, expandedMax, undefined, minP)
+    if (step.length >= 10) return step.slice(0, 10)
+    const loweredP = isNaN(minP) ? minP : Math.max(30, minP - 10)
+    step = filterList(list, expandedMin, expandedMax, undefined, loweredP)
+    if (step.length >= 10) return step.slice(0, 10)
+    step = filterList(list, undefined, undefined, undefined, undefined)
+    return step.slice(0, 10)
+  })()
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -276,12 +373,94 @@ export default function DashboardPage() {
             {/* Right Actions */}
             <div className="flex items-center gap-4">
               {/* Notifications */}
-              <button className="relative p-2 text-gray-600 hover:text-rose-600 transition-colors">
-                <Bell className="w-5 h-5" />
-                {data?.notifications > 0 && (
-                  <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full"></span>
-                )}
-              </button>
+              <DropdownMenu onOpenChange={(open) => { setIsNotifOpen(open); if (open) loadNotifications() }}>
+                <DropdownMenuTrigger asChild>
+                  <button className="relative p-2 text-gray-600 hover:text-rose-600 transition-colors">
+                    <Bell className="w-5 h-5" />
+                    {notifItems.some(n => !n.isRead) && (
+                      <span className="absolute -top-1 -right-1 min-w-[18px] h-4 px-1 bg-rose-600 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                        {Math.min(9, notifItems.filter(n => !n.isRead).length)}
+                        {notifItems.filter(n => !n.isRead).length > 9 ? '+' : ''}
+                      </span>
+                    )}
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-80 max-h-96 overflow-auto">
+                  <DropdownMenuLabel className="flex items-center justify-between">
+                    <span>Notifikasi</span>
+                    {isLoadingNotif && <span className="text-xs text-gray-400">Memuat...</span>}
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {notifItems.length > 0 && (
+                    <>
+                      <DropdownMenuItem
+                        onClick={async () => {
+                          try {
+                            await fetch('/api/notifications', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ action: 'markAllRead' }),
+                            })
+                            setNotifItems(prev => prev.map(n => ({ ...n, isRead: true })))
+                          } catch {}
+                        }}
+                        className="justify-center text-xs text-gray-600"
+                      >
+                        Tandai semua terbaca
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                    </>
+                  )}
+                  {notifItems.length === 0 && (
+                    <div className="px-3 py-2 text-xs text-gray-500">Belum ada notifikasi.</div>
+                  )}
+                  {notifItems.map((n) => (
+                    <DropdownMenuItem
+                      key={n.id}
+                      className={`flex flex-col items-start whitespace-normal ${!n.isRead ? 'bg-rose-50' : ''}`}
+                      onClick={async () => {
+                        try {
+                          if (!n.isRead) {
+                            await fetch('/api/notifications', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ action: 'markOneRead', id: n.id }),
+                            })
+                            setNotifItems(prev => prev.map(x => x.id === n.id ? { ...x, isRead: true } : x))
+                          }
+                        } catch {}
+                      }}
+                    >
+                      {n.link ? (
+                        <Link
+                          href={n.link}
+                          className="w-full"
+                          onClick={async (e) => {
+                            try {
+                              if (!n.isRead) {
+                                await fetch('/api/notifications', {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json' },
+                                  body: JSON.stringify({ action: 'markOneRead', id: n.id }),
+                                })
+                                setNotifItems(prev => prev.map(x => x.id === n.id ? { ...x, isRead: true } : x))
+                              }
+                            } catch {}
+                          }}
+                        >
+                          <p className="text-xs font-semibold text-gray-800">{n.title}</p>
+                          <p className="text-[11px] text-gray-600">{n.message}</p>
+                        </Link>
+                      ) : (
+                        <div className="w-full">
+                          <p className="text-xs font-semibold text-gray-800">{n.title}</p>
+                          <p className="text-[11px] text-gray-600">{n.message}</p>
+                        </div>
+                      )}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               {/* User Menu */}
               <DropdownMenu>
@@ -324,7 +503,10 @@ export default function DashboardPage() {
                     </Link>
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem className="text-red-600 cursor-pointer">
+                  <DropdownMenuItem
+                    className="text-red-600 cursor-pointer"
+                    onClick={() => signOut({ callbackUrl: '/' })}
+                  >
                     <LogOut className="w-4 h-4 mr-2" />
                     Logout
                   </DropdownMenuItem>
@@ -341,6 +523,30 @@ export default function DashboardPage() {
           {/* Left Sidebar - Desktop Only */}
           <aside className="hidden lg:block lg:col-span-3">
             <div className="sticky top-20 space-y-4">
+              {(() => {
+                const adsLeft = (data?.advertisements || [])
+                  .filter(a => a.position === 'dashboard_left' || a.position === 'dashboard_top')
+                  .slice(0, 2)
+                if (adsLeft.length === 0) return null
+                return adsLeft.map((ad) => (
+                  <Card key={ad.id} className="overflow-hidden">
+                    <CardContent className="p-0">
+                      {ad.imageUrl ? (
+                        <Link href={ad.linkUrl || '#'} target={ad.linkUrl ? '_blank' : undefined}>
+                          <img src={ad.imageUrl} alt={ad.title} className="w-full h-40 object-cover" />
+                        </Link>
+                      ) : (
+                        <div className="relative h-40 bg-gradient-to-r from-rose-100 to-pink-100 flex items-center justify-center">
+                          <div className="text-center">
+                            <p className="text-sm text-rose-600 font-medium mb-2">IKLAN SPONSOR</p>
+                            <h3 className="text-lg font-bold text-gray-900">{ad.title}</h3>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))
+              })()}
               {/* User Mini Profile */}
               <Card className="overflow-hidden">
                 <CardHeader className="bg-gradient-to-r from-rose-500 to-pink-500 text-white pb-4">
@@ -384,56 +590,13 @@ export default function DashboardPage() {
                     <Button asChild variant="outline" size="sm" className="flex-1">
                       <Link href="/dashboard/psychotest">
                         <RotateCcw className="w-3 h-3 mr-1" />
-                        Uji
+                        Psikotes
                       </Link>
                     </Button>
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Navigation Menu */}
-              <Card>
-                <CardContent className="p-2">
-                  <nav className="space-y-1">
-                    <Link href="/dashboard">
-                      <Button variant="ghost" className="w-full justify-start bg-rose-50 text-rose-600 hover:bg-rose-100">
-                        <Home className="w-4 h-4 mr-2" />
-                        Home
-                      </Button>
-                    </Link>
-                    <Link href="/dashboard/profile">
-                      <Button variant="ghost" className="w-full justify-start text-gray-600 hover:bg-gray-100">
-                        <User className="w-4 h-4 mr-2" />
-                        Profile
-                      </Button>
-                    </Link>
-                    <Link href="/dashboard/psychotest">
-                      <Button variant="ghost" className="w-full justify-start text-gray-600 hover:bg-gray-100">
-                        <FileText className="w-4 h-4 mr-2" />
-                        Psikotes
-                      </Button>
-                    </Link>
-                    <Link href="/dashboard/messages">
-                      <Button variant="ghost" className="w-full justify-start text-gray-600 hover:bg-gray-100">
-                        <MessageSquare className="w-4 h-4 mr-2" />
-                        Messages
-                      </Button>
-                    </Link>
-                    <Link href="/dashboard/subscription">
-                      <Button variant="ghost" className="w-full justify-start text-gray-600 hover:bg-gray-100">
-                        <CreditCard className="w-4 h-4 mr-2" />
-                        Subscription
-                      </Button>
-                    </Link>
-                    <Link href="/dashboard/settings">
-                      <Button variant="ghost" className="w-full justify-start text-gray-600 hover:bg-gray-100">
-                        <Settings className="w-4 h-4 mr-2" />
-                        Settings
-                      </Button>
-                    </Link>
-                  </nav>
-                </CardContent>
-              </Card>
 
               {/* Workflow Status */}
               <Card>
@@ -490,7 +653,28 @@ export default function DashboardPage() {
                     <h1 className="text-2xl font-bold text-gray-900 mb-1">
                       Selamat Datang, {data?.profile?.fullName || data?.user.name?.split(' ')[0] || 'User'}!
                     </h1>
-                    <p className="text-gray-600">Mulai perjalanan taaruf Anda hari ini</p>
+                    <p className="text-gray-600">
+                      {(() => {
+                        if (!data) return 'Memuat...'
+                        const prefix = 'Kamu'
+                        const parts: string[] = []
+                        if (!data.flags?.profileCompleted) parts.push('belum mengisi profile')
+                        if (!data.flags?.psychotestCompleted) parts.push('belum mengikuti psikotes')
+                        const pendingRequests = (data.matches || []).filter(m => m.matchStatus === 'pending' && m.matchStep === 'profile_request')
+                        const likedByTarget = (data.matches || []).filter(m => m.matchStep === 'target_approved')
+                        const today = new Date()
+                        const day = today.toLocaleDateString('id-ID', { weekday: 'long' })
+                        const notif = data.notifications || 0
+                        const statusPart = parts.length ? `(${parts.join(' dan ')})` : '(Semua syarat dasar terpenuhi)'
+                        const reqPart = pendingRequests.length
+                          ? `Kamu telah meminta lihat profil ke ${pendingRequests[0].targetName}${pendingRequests.length > 1 ? ` dan ${pendingRequests.length - 1} lainnya` : ''}`
+                          : 'Belum ada permintaan lihat profil'
+                        const likePart = likedByTarget.length
+                          ? `${likedByTarget[0].targetName} memilih Lanjut${likedByTarget.length > 1 ? ` dan ${likedByTarget.length - 1} lainnya` : ''}`
+                          : 'Belum ada yang memilih Lanjut'
+                        return `${prefix} ${statusPart}. ${reqPart}. ${likePart}. Hari ini ${day}, ${notif} notifikasi belum dibaca.`
+                      })()}
+                    </p>
                   </div>
                   <div className="hidden sm:block">
                     <Heart className="w-12 h-12 text-rose-500 opacity-20" />
@@ -498,6 +682,159 @@ export default function DashboardPage() {
                 </div>
               </CardContent>
             </Card>
+            {/* Psychotest Results - Mobile */}
+            <Card className="lg:hidden">
+              <CardHeader>
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-rose-500" />
+                  Hasil Psikotes
+                </CardTitle>
+                <CardDescription>
+                  Ringkasan hasil psikotes untuk pencocokan yang lebih akurat
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="rounded-lg border bg-white p-3 mb-4">
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div className="w-full sm:w-40">
+                      <Label className="text-xs text-gray-600">Umur min</Label>
+                      <Input type="number" value={ageMin} onChange={(e) => setAgeMin(e.target.value)} />
+                    </div>
+                    <div className="w-full sm:w-40">
+                      <Label className="text-xs text-gray-600">Umur max</Label>
+                      <Input type="number" value={ageMax} onChange={(e) => setAgeMax(e.target.value)} />
+                    </div>
+                    <div className="flex-1 min-w-[160px]">
+                      <Label className="text-xs text-gray-600">Domisili</Label>
+                      <Input value={cityQ} onChange={(e) => setCityQ(e.target.value)} />
+                    </div>
+                    <div className="w-full sm:w-44">
+                      <Label className="text-xs text-gray-600">Min % cocok</Label>
+                      <Select value={minMatch} onValueChange={(v) => setMinMatch(v)}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Pilih" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="any">Tanpa batas</SelectItem>
+                          <SelectItem value="40">≥ 40%</SelectItem>
+                          <SelectItem value="50">≥ 50%</SelectItem>
+                          <SelectItem value="60">≥ 60%</SelectItem>
+                          <SelectItem value="70">≥ 70%</SelectItem>
+                          <SelectItem value="80">≥ 80%</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="w-full sm:w-auto sm:ml-auto">
+                      <Button variant="outline" onClick={() => { setAgeMin(''); setAgeMax(''); setCityQ(''); setMinMatch('any'); }}>
+                        Reset
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+                {data?.psychotests && data.psychotests.length > 0 ? (
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="text-xs font-medium mb-2">Skor per Kategori</h4>
+                      <ChartContainer config={chartConfig} className="h-40">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={data.psychotests}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                            <XAxis
+                              dataKey="testType"
+                              tickLine={false}
+                              tickMargin={6}
+                              axisLine={false}
+                              tickFormatter={(value) => {
+                                const labels: Record<string, string> = {
+                                  pre_marriage: 'Pra-Nikah',
+                                  disc: 'DISC',
+                                  clinical: 'Clinical',
+                                  '16pf': '16PF',
+                                }
+                                return labels[value] || value
+                              }}
+                            />
+                            <YAxis tickLine={false} axisLine={false} tickMargin={6} />
+                            <ChartTooltip content={<ChartTooltipContent />} />
+                            <Bar dataKey="score" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </ChartContainer>
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-medium mb-2">Distribusi Hasil</h4>
+                      <ResponsiveContainer width="100%" height={160}>
+                        <PieChart>
+                          <Pie
+                            data={data.psychotests}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={36}
+                            outerRadius={68}
+                            paddingAngle={5}
+                            dataKey="score"
+                            labelLine={false}
+                          >
+                            {data.psychotests.map((entry, index) => (
+                              <Cell key={`cell-m-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <ChartTooltip content={<ChartTooltipContent />} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="grid grid-cols-2 gap-2 mt-2">
+                        {data.psychotests.map((test, index) => (
+                          <div key={test.testType} className="flex items-center gap-2">
+                            <div
+                              className="w-2.5 h-2.5 rounded-sm"
+                              style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                            ></div>
+                            <span className="text-xs text-gray-600">
+                              {test.testType === 'pre_marriage' && 'Pra-Nikah'}
+                              {test.testType === 'disc' && 'DISC'}
+                              {test.testType === 'clinical' && 'Clinical'}
+                              {test.testType === '16pf' && '16PF'}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-6">
+                    <FileText className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+                    <p className="text-xs text-gray-500 mb-2">Belum ada hasil psikotes</p>
+                    <Button asChild size="sm" variant="outline" disabled={isSubscriptionExpired}>
+                      <Link href="/dashboard/psychotest">
+                        <FileText className="w-3.5 h-3.5 mr-2" />
+                        Mulai Psikotes
+                      </Link>
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            {workflowSteps[currentWorkflowIndex]?.key === 'psychotest' && (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h2 className="text-lg font-semibold text-gray-900">Mulai Psikotes</h2>
+                      <p className="text-sm text-gray-600">Selesaikan semua tes untuk lanjut ke pencocokan</p>
+                    </div>
+                    <Link href="/dashboard/psychotest">
+                      <Button className="bg-rose-600 hover:bg-rose-700 text-white">Mulai Psikotes</Button>
+                    </Link>
+                  </div>
+                  <div className="mt-4">
+                    <Progress value={data?.progress?.psychotestCompletionPercent || 0} />
+                    <div className="mt-2 text-sm text-gray-600">
+                      {data?.progress?.psychotestCompletedCount || 0}/{data?.progress?.psychotestRequiredCount || 4} tes selesai
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {/* Subscription Warning */}
             {isSubscriptionExpired && (
@@ -512,248 +849,7 @@ export default function DashboardPage() {
               </Alert>
             )}
 
-            {/* Advertisement 1 - Top */}
-            {data?.advertisements?.[0] && (
-              <Card className="overflow-hidden">
-                <CardContent className="p-0">
-                  <div className="relative h-40 bg-gradient-to-r from-rose-100 to-pink-100 flex items-center justify-center">
-                    <div className="text-center">
-                      <p className="text-sm text-rose-600 font-medium mb-2">IKLAN SPONSOR</p>
-                      <h3 className="text-lg font-bold text-gray-900">{data.advertisements[0].title}</h3>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Unique Code Search */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Search className="w-5 h-5 text-rose-500" />
-                  Cari Pasangan dengan Kode Unik
-                </CardTitle>
-                <CardDescription>
-                  Masukkan kode unik pasangan yang ingin Anda cari
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={handleSearchByCode} className="space-y-4">
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="Contoh: SET123456"
-                      value={searchCode}
-                      onChange={(e) => setSearchCode(e.target.value.toUpperCase())}
-                      disabled={isSearching || isSubscriptionExpired}
-                      className="font-mono"
-                    />
-                    <Button
-                      type="submit"
-                      disabled={isSearching || !searchCode || isSubscriptionExpired}
-                      className="bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600"
-                    >
-                      {isSearching ? 'Mencari...' : 'Cari'}
-                    </Button>
-                  </div>
-
-                  {searchError && (
-                    <Alert variant="destructive">
-                      <AlertDescription>{searchError}</AlertDescription>
-                    </Alert>
-                  )}
-
-                  {searchResult && (
-                    <Card className="bg-gradient-to-r from-rose-50 to-pink-50 border-rose-200">
-                      <CardContent className="pt-4">
-                        <div className="flex items-center gap-4">
-                          <Avatar className="w-16 h-16 border-2 border-rose-300">
-                            {searchResult.avatar ? (
-                              <AvatarImage src={searchResult.avatar} alt={searchResult.name} />
-                            ) : null}
-                            <AvatarFallback className="bg-rose-500 text-white text-xl">
-                              {searchResult.initials || getInitials(searchResult.name)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="flex-1">
-                            <h4 className="font-semibold text-gray-900">{searchResult.name}</h4>
-                            <p className="text-sm text-gray-600">
-                              {searchResult.age ? `${searchResult.age} tahun` : ''} • {searchResult.occupation || '-'}
-                            </p>
-                            <p className="text-sm text-gray-600">{searchResult.city || '-'}</p>
-                          </div>
-                          <div className="text-center">
-                            <div className="text-3xl font-bold text-rose-600">
-                              {searchResult.matchPercentage || 0}%
-                            </div>
-                            <p className="text-xs text-gray-500">Kecocokan</p>
-                          </div>
-                        </div>
-                        <Button
-                          className="w-full mt-4 bg-rose-500 hover:bg-rose-600"
-                          disabled={isSubscriptionExpired}
-                        >
-                          View Profile
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  )}
-                </form>
-              </CardContent>
-            </Card>
-
-            {/* Psychotest Results Charts */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <TrendingUp className="w-5 h-5 text-rose-500" />
-                  Hasil Psikotes
-                </CardTitle>
-                <CardDescription>
-                  Ringkasan hasil psikotes Anda untuk pencocokan yang lebih akurat
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {data?.psychotests && data.psychotests.length > 0 ? (
-                  <div className="space-y-6">
-                    {/* Bar Chart */}
-                    <div>
-                      <h4 className="text-sm font-medium mb-4">Skor per Kategori</h4>
-                      <ChartContainer config={chartConfig} className="h-48">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={data.psychotests}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                            <XAxis
-                              dataKey="testType"
-                              tickLine={false}
-                              tickMargin={10}
-                              axisLine={false}
-                              tickFormatter={(value) => {
-                                const labels: Record<string, string> = {
-                                  pre_marriage: 'Pra-Nikah',
-                                  disc: 'DISC',
-                                  clinical: 'Clinical',
-                                  '16pf': '16PF',
-                                }
-                                return labels[value] || value
-                              }}
-                            />
-                            <YAxis tickLine={false} axisLine={false} tickMargin={10} />
-                            <ChartTooltip content={<ChartTooltipContent />} />
-                            <Bar dataKey="score" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </ChartContainer>
-                    </div>
-
-                    {/* Pie Chart */}
-                    <div>
-                      <h4 className="text-sm font-medium mb-4">Distribusi Hasil</h4>
-                      <div className="flex items-center justify-center">
-                        <ResponsiveContainer width="100%" height={200}>
-                          <PieChart>
-                            <Pie
-                              data={data.psychotests}
-                              cx="50%"
-                              cy="50%"
-                              innerRadius={40}
-                              outerRadius={80}
-                              paddingAngle={5}
-                              dataKey="score"
-                              label={(entry) => {
-                                const labels: Record<string, string> = {
-                                  pre_marriage: 'Pra-Nikah',
-                                  disc: 'DISC',
-                                  clinical: 'Clinical',
-                                  '16pf': '16PF',
-                                }
-                                return labels[entry.testType] || entry.testType
-                              }}
-                              labelLine={false}
-                            >
-                              {data.psychotests.map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                              ))}
-                            </Pie>
-                            <ChartTooltip content={<ChartTooltipContent />} />
-                          </PieChart>
-                        </ResponsiveContainer>
-                      </div>
-                      <div className="flex flex-wrap justify-center gap-4 mt-4">
-                        {data.psychotests.map((test, index) => (
-                          <div key={test.testType} className="flex items-center gap-2">
-                            <div
-                              className="w-3 h-3 rounded-full"
-                              style={{ backgroundColor: COLORS[index % COLORS.length] }}
-                            ></div>
-                            <span className="text-sm text-gray-600">
-                              {test.testType === 'pre_marriage' && 'Pra-Nikah'}
-                              {test.testType === 'disc' && 'DISC'}
-                              {test.testType === 'clinical' && 'Clinical'}
-                              {test.testType === '16pf' && '16PF'}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Detailed Results */}
-                    <div className="grid grid-cols-2 gap-3">
-                      {data.psychotests.map((test) => (
-                        <div
-                          key={test.testType}
-                          className="p-3 rounded-lg border bg-gray-50"
-                        >
-                          <p className="text-xs text-gray-500 mb-1">
-                            {test.testType === 'pre_marriage' && 'Psikotes Pra-Nikah'}
-                            {test.testType === 'disc' && 'DISC Assessment'}
-                            {test.testType === 'clinical' && 'Clinical Assessment'}
-                            {test.testType === '16pf' && '16PF Personality'}
-                          </p>
-                          <p className="text-lg font-bold text-rose-600">{test.score.toFixed(0)}%</p>
-                          <Badge
-                            variant={
-                              test.score >= 80
-                                ? 'default'
-                                : test.score >= 60
-                                ? 'secondary'
-                                : 'outline'
-                            }
-                            className="mt-1"
-                          >
-                            {test.result}
-                          </Badge>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-8">
-                    <FileText className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                    <p className="text-gray-500 mb-3">Belum ada hasil psikotes</p>
-                    <Button asChild variant="outline" disabled={isSubscriptionExpired}>
-                      <Link href="/dashboard/psychotest">
-                        <FileText className="w-4 h-4 mr-2" />
-                        Mulai Psikotes
-                      </Link>
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Advertisement 2 - Middle */}
-            {data?.advertisements?.[1] && (
-              <Card className="overflow-hidden">
-                <CardContent className="p-0">
-                  <div className="relative h-40 bg-gradient-to-r from-purple-100 to-indigo-100 flex items-center justify-center">
-                    <div className="text-center">
-                      <p className="text-sm text-purple-600 font-medium mb-2">IKLAN SPONSOR</p>
-                      <h3 className="text-lg font-bold text-gray-900">{data.advertisements[1].title}</h3>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
+            
 
             {/* Partner Recommendations */}
             <Card>
@@ -767,9 +863,36 @@ export default function DashboardPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4 max-h-96 overflow-y-auto">
-                  {data?.matches && data.matches.length > 0 ? (
-                    data.matches.map((match) => (
+                
+                {(() => {
+                  const adsBottom = (data?.advertisements || [])
+                    .filter(a => a.position === 'dashboard_bottom' || a.position === 'dashboard_center')
+                    .slice(0, 2)
+                  if (adsBottom.length === 0) return null
+                  return adsBottom.map((ad) => (
+                    <div key={ad.id} className="mb-4">
+                      <Card className="overflow-hidden">
+                        <CardContent className="p-0">
+                          {ad.imageUrl ? (
+                            <Link href={ad.linkUrl || '#'} target={ad.linkUrl ? '_blank' : undefined}>
+                              <img src={ad.imageUrl} alt={ad.title} className="w-full h-24 object-cover" />
+                            </Link>
+                          ) : (
+                            <div className="relative h-24 bg-gradient-to-r from-pink-100 to-rose-100 flex items-center justify-center">
+                              <div className="text-center">
+                                <p className="text-xs text-pink-600 font-medium mb-1">IKLAN SPONSOR</p>
+                                <h3 className="text-sm font-bold text-gray-900">{ad.title}</h3>
+                              </div>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
+                  ))
+                })()}
+                <div className="space-y-4">
+                  {displayedMatches && displayedMatches.length > 0 ? (
+                    displayedMatches.map((match) => (
                       <Card
                         key={match.id}
                         className="hover:shadow-md transition-shadow"
@@ -781,16 +904,31 @@ export default function DashboardPage() {
                                 <AvatarImage src={match.targetAvatar} alt={match.targetName} />
                               ) : null}
                               <AvatarFallback className="bg-gradient-to-br from-rose-500 to-pink-500 text-white">
-                                {match.targetInitials || getInitials(match.targetName)}
+                                {getInitials(match.targetName)}
                               </AvatarFallback>
                             </Avatar>
                             <div className="flex-1 min-w-0">
                               <h4 className="font-semibold text-gray-900 truncate">{match.targetName}</h4>
-                              <p className="text-sm text-gray-600">
-                                {match.targetAge ? `${match.targetAge} tahun` : 'Usia -'} •{' '}
-                                {match.targetOccupation || 'Pekerjaan -'}
+                              <p className="text-sm text-gray-600 truncate">
+                                {(() => {
+                                  const parts = [
+                                    match.targetAge ? `${match.targetAge} tahun` : null,
+                                    match.targetOccupation || null,
+                                    match.targetCity || null
+                                  ].filter(Boolean)
+                                  return parts.length ? parts.join(' • ') : 'Data belum tersedia'
+                                })()}
                               </p>
-                              <p className="text-sm text-gray-500 truncate">{match.targetCity || 'Lokasi -'}</p>
+                              {(() => {
+                                const incomplete = !match.targetAge || !match.targetOccupation || !match.targetCity
+                                return incomplete ? (
+                                  <div className="mt-1">
+                                    <Badge variant="outline" className="text-rose-600 border-rose-200 bg-rose-50">
+                                      Profil belum lengkap
+                                    </Badge>
+                                  </div>
+                                ) : null
+                              })()}
                             </div>
                             <div className="text-center flex-shrink-0">
                               <div
@@ -807,14 +945,37 @@ export default function DashboardPage() {
                               <p className="text-xs text-gray-500">Kecocokan</p>
                             </div>
                           </div>
-                          <Button
+                        <Button
                             className="w-full mt-3 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600"
-                            disabled={isSubscriptionExpired}
+                            disabled={
+                              isSubscriptionExpired ||
+                              !data?.flags?.profileCompleted ||
+                              !data?.flags?.psychotestCompleted
+                            }
+                            onClick={async () => {
+                              try {
+                                const res = await fetch(`/api/matches/${match.id}/view`, { method: 'POST' })
+                                const json = await res.json()
+                                if (!res.ok) {
+                                  alert(json.error || 'Gagal membuka profil. Kuota mungkin habis.')
+                                  return
+                                }
+                                alert(`Jatah view profil berkurang. Sisa: ${json.remaining}`)
+                                window.location.href = `/dashboard/matches/${match.id}`
+                              } catch (e: any) {
+                                alert(e.message || 'Error')
+                              }
+                            }}
                           >
                             <User className="w-4 h-4 mr-2" />
                             View Profile
                             <ChevronRight className="w-4 h-4 ml-2" />
                           </Button>
+                          {(!data?.flags?.profileCompleted || !data?.flags?.psychotestCompleted) && (
+                            <p className="text-xs text-gray-500 mt-2">
+                              Lengkapi biodata dan semua psikotes untuk membuka profil rekomendasi.
+                            </p>
+                          )}
                         </CardContent>
                       </Card>
                     ))
@@ -829,24 +990,35 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
 
-            {/* Advertisement 3 - Bottom */}
-            {data?.advertisements?.[2] && (
-              <Card className="overflow-hidden">
-                <CardContent className="p-0">
-                  <div className="relative h-40 bg-gradient-to-r from-pink-100 to-rose-100 flex items-center justify-center">
-                    <div className="text-center">
-                      <p className="text-sm text-pink-600 font-medium mb-2">IKLAN SPONSOR</p>
-                      <h3 className="text-lg font-bold text-gray-900">{data.advertisements[2].title}</h3>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
           </main>
 
           {/* Right Sidebar - Desktop Only */}
           <aside className="hidden lg:block lg:col-span-3">
             <div className="sticky top-20 space-y-4">
+              {(() => {
+                const adsRight = (data?.advertisements || [])
+                  .filter(a => a.position === 'dashboard_right' || a.position === 'dashboard_middle')
+                  .slice(0, 2)
+                if (adsRight.length === 0) return null
+                return adsRight.map((ad) => (
+                  <Card key={ad.id} className="overflow-hidden">
+                    <CardContent className="p-0">
+                      {ad.imageUrl ? (
+                        <Link href={ad.linkUrl || '#'} target={ad.linkUrl ? '_blank' : undefined}>
+                          <img src={ad.imageUrl} alt={ad.title} className="w-full h-40 object-cover" />
+                        </Link>
+                      ) : (
+                        <div className="relative h-40 bg-gradient-to-r from-purple-100 to-indigo-100 flex items-center justify-center">
+                          <div className="text-center">
+                            <p className="text-sm text-purple-600 font-medium mb-2">IKLAN SPONSOR</p>
+                            <h3 className="text-lg font-bold text-gray-900">{ad.title}</h3>
+                          </div>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))
+              })()}
               {/* Subscription Status */}
               <Card>
                 <CardHeader>
@@ -921,27 +1093,90 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
 
-              {/* Workflow Status Icon */}
+
+              {/* Unique Code Search - Moved to Right Sidebar */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-sm font-medium">Status Saat Ini</CardTitle>
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    <Search className="w-4 h-4 text-rose-500" />
+                    Cari Pasangan dengan Kode Unik
+                  </CardTitle>
+                  <CardDescription>
+                    Masukkan kode unik pasangan yang ingin Kamu cari
+                  </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="flex items-center gap-3 p-3 bg-gradient-to-r from-rose-50 to-pink-50 rounded-lg border border-rose-200">
-                    <div className="p-2 bg-rose-500 rounded-lg">
-                      {(() => {
-                        const step = workflowSteps[currentWorkflowIndex]
-                        const Icon = step?.icon || Heart
-                        return <Icon className="w-5 h-5 text-white" />
-                      })()}
+                  <form onSubmit={handleSearchByCode} className="space-y-3">
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Contoh: SET123456"
+                        value={searchCode}
+                        onChange={(e) => setSearchCode(e.target.value.toUpperCase())}
+                        disabled={isSearching || isSubscriptionExpired}
+                        className="font-mono"
+                      />
+                      <Button
+                        type="submit"
+                        disabled={isSearching || !searchCode || isSubscriptionExpired}
+                        className="bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600"
+                      >
+                        {isSearching ? 'Mencari...' : 'Cari'}
+                      </Button>
                     </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">
-                        {workflowSteps[currentWorkflowIndex]?.label || 'Loading...'}
-                      </p>
-                      <p className="text-xs text-gray-500">Tahap saat ini</p>
-                    </div>
-                  </div>
+
+                    {searchError && (
+                      <Alert variant="destructive">
+                        <AlertDescription>{searchError}</AlertDescription>
+                      </Alert>
+                    )}
+
+                    {searchResult && (
+                      <Card className="bg-gradient-to-r from-rose-50 to-pink-50 border-rose-200">
+                        <CardContent className="pt-3">
+                          <div className="flex items-center gap-3">
+                            <Avatar className="w-12 h-12 border-2 border-rose-300">
+                              {searchResult.avatar ? (
+                                <AvatarImage src={searchResult.avatar} alt={searchResult.name} />
+                              ) : null}
+                              <AvatarFallback className="bg-rose-500 text-white">
+                                {getInitials(searchResult.name)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="font-semibold text-gray-900 truncate">{searchResult.name}</h4>
+                              <p className="text-xs text-gray-600 truncate">
+                                {(() => {
+                                  const parts = [
+                                    searchResult.age ? `${searchResult.age} tahun` : null,
+                                    searchResult.occupation || null,
+                                    searchResult.city || null
+                                  ].filter(Boolean)
+                                  return parts.length ? parts.join(' • ') : 'Data belum tersedia'
+                                })()}
+                              </p>
+                            </div>
+                            <div className="text-center flex-shrink-0">
+                              <div className="text-lg font-bold text-rose-600">
+                                {searchResult.matchPercentage?.toFixed?.(0) ?? '—'}%
+                              </div>
+                              <p className="text-[10px] text-gray-500">Kecocokan</p>
+                            </div>
+                          </div>
+                          <Link href={`/dashboard/matches/${searchResult.matchId}`}>
+                            <Button
+                              className="w-full mt-3 bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600"
+                              disabled={isSubscriptionExpired}
+                              size="sm"
+                            >
+                              <User className="w-3.5 h-3.5 mr-2" />
+                              View Profile
+                              <ChevronRight className="w-3.5 h-3.5 ml-2" />
+                            </Button>
+                          </Link>
+                        </CardContent>
+                      </Card>
+                    )}
+                  </form>
                 </CardContent>
               </Card>
 
@@ -1009,6 +1244,107 @@ export default function DashboardPage() {
                       </span>
                     </div>
                   </div>
+                </CardContent>
+              </Card>
+
+              {/* Psychotest Results - Moved to Right Sidebar */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-rose-500" />
+                    Hasil Psikotes
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {data?.psychotests && data.psychotests.length > 0 ? (
+                    <div className="space-y-4">
+                      <div>
+                        <h4 className="text-xs font-medium mb-2">Skor per Kategori</h4>
+                        <ChartContainer config={chartConfig} className="h-36">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={data.psychotests}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                              <XAxis
+                                dataKey="testType"
+                                tickLine={false}
+                                tickMargin={6}
+                                axisLine={false}
+                                tickFormatter={(value) => {
+                                  const labels: Record<string, string> = {
+                                    pre_marriage: 'Pra-Nikah',
+                                    disc: 'DISC',
+                                    clinical: 'Clinical',
+                                    '16pf': '16PF',
+                                  }
+                                  return labels[value] || value
+                                }}
+                              />
+                              <YAxis tickLine={false} axisLine={false} tickMargin={6} />
+                              <ChartTooltip content={<ChartTooltipContent />} />
+                              <Bar dataKey="score" fill="hsl(var(--chart-1))" radius={[4, 4, 0, 0]} />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </ChartContainer>
+                      </div>
+
+                      <div>
+                        <h4 className="text-xs font-medium mb-2">Distribusi Hasil</h4>
+                        <ChartContainer
+                          className="h-40 w-full"
+                          config={{
+                            score: { label: 'Skor', color: 'hsl(var(--chart-1))' },
+                          }}
+                        >
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie
+                                data={data.psychotests}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={36}
+                                outerRadius={68}
+                                paddingAngle={5}
+                                dataKey="score"
+                                labelLine={false}
+                              >
+                                {data.psychotests.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                ))}
+                              </Pie>
+                              <ChartTooltip content={<ChartTooltipContent />} />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </ChartContainer>
+                        <div className="grid grid-cols-2 gap-2 mt-2">
+                          {data.psychotests.map((test, index) => (
+                            <div key={test.testType} className="flex items-center gap-2">
+                              <div
+                                className="w-2.5 h-2.5 rounded-sm"
+                                style={{ backgroundColor: COLORS[index % COLORS.length] }}
+                              ></div>
+                              <span className="text-xs text-gray-600">
+                                {test.testType === 'pre_marriage' && 'Pra-Nikah'}
+                                {test.testType === 'disc' && 'DISC'}
+                                {test.testType === 'clinical' && 'Clinical'}
+                                {test.testType === '16pf' && '16PF'}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-center py-6">
+                      <FileText className="w-10 h-10 text-gray-300 mx-auto mb-2" />
+                      <p className="text-xs text-gray-500 mb-2">Belum ada hasil psikotes</p>
+                      <Button asChild size="sm" variant="outline" disabled={isSubscriptionExpired}>
+                        <Link href="/dashboard/psychotest">
+                          <FileText className="w-3.5 h-3.5 mr-2" />
+                          Mulai Psikotes
+                        </Link>
+                      </Button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>

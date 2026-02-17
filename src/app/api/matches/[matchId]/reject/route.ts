@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 
 // POST /api/matches/[matchId]/reject - Reject profile view request
 export async function POST(
@@ -7,7 +9,8 @@ export async function POST(
   { params }: { params: { matchId: string } }
 ) {
   try {
-    const userId = request.cookies.get('userId')?.value
+    const session = await getServerSession(authOptions)
+    const userId = (session?.user as any)?.id as string | undefined
 
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -58,7 +61,7 @@ export async function POST(
         userId: match.requesterId,
         type: 'match_blocked',
         title: 'Permintaan Lihat Profil Ditolak',
-        message: `${match.target.profile?.initials || match.target.name || 'Seseorang'} telah menolak permintaan melihat profil Anda`,
+        message: `${match.target.name || 'Seseorang'} telah menolak permintaan melihat profil Anda`,
         link: `/dashboard/matches/${matchId}`,
       },
     })

@@ -90,9 +90,6 @@ model Profile {
   nationality     String?  // Warganegara
 
   // Informasi Kontak & Lokasi
-  phone           String?
-  email           String?
-  address         String?
   city            String?  // Domisili
   province        String?
   country         String?

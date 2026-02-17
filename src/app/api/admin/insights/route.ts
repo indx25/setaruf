@@ -1,12 +1,15 @@
+export const runtime = 'nodejs'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { cookies } from 'next/headers'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 
 // GET - Get web insights (admin only)
 export async function GET(request: NextRequest) {
   try {
-    const cookieStore = cookies()
-    const userId = cookieStore.get('userId')?.value
+    const session = await getServerSession(authOptions)
+    const userId = (session?.user as any)?.id
 
     if (!userId) {
       return NextResponse.json(
@@ -110,6 +113,80 @@ export async function GET(request: NextRequest) {
       include: { user: { include: { profile: true } } }
     })
 
+    // Extended analytics: traffic, login, demographics
+    const { searchParams } = new URL(request.url)
+    const daysParam = parseInt(searchParams.get('days') || '30', 10)
+    const days = Math.min(Math.max(isNaN(daysParam) ? 30 : daysParam, 7), 180)
+    const startRange = new Date()
+    startRange.setDate(startRange.getDate() - days)
+
+    function toKey(d: Date) {
+      const x = new Date(d)
+      x.setHours(0, 0, 0, 0)
+      return x.toISOString().slice(0, 10)
+    }
+
+    const [
+      usersLast30,
+      matchesLast30,
+      messagesLast30,
+      paymentsLast30,
+      sessionsLast30,
+      providerGroups,
+      genderGroups,
+      cityGroups,
+      profilesWithAge
+    ] = await Promise.all([
+      db.user.findMany({ where: { createdAt: { gte: startRange } }, select: { createdAt: true } }),
+      db.match.findMany({ where: { createdAt: { gte: startRange } }, select: { createdAt: true } }),
+      db.message.findMany({ where: { createdAt: { gte: startRange } }, select: { createdAt: true } }),
+      db.payment.findMany({ where: { createdAt: { gte: startRange } }, select: { createdAt: true } }),
+      db.session.findMany({ where: { expires: { gte: startRange } }, select: { expires: true } }),
+      db.account.groupBy({ by: ['provider'], _count: true }),
+      db.profile.groupBy({ by: ['gender'], _count: true }),
+      db.profile.groupBy({ by: ['city'], _count: true }),
+      db.profile.findMany({ where: { age: { not: null } }, select: { age: true } })
+    ])
+
+    const trafficMap: Record<string, { date: string; newUsers: number; matches: number; messages: number; payments: number; sessions: number }> = {}
+    for (let i = 0; i < days; i++) {
+      const d = new Date()
+      d.setDate(d.getDate() - (days - 1 - i))
+      const key = toKey(d)
+      trafficMap[key] = { date: key, newUsers: 0, matches: 0, messages: 0, payments: 0, sessions: 0 }
+    }
+    usersLast30.forEach(u => { const k = toKey(u.createdAt as unknown as Date); if (trafficMap[k]) trafficMap[k].newUsers++ })
+    matchesLast30.forEach(m => { const k = toKey(m.createdAt as unknown as Date); if (trafficMap[k]) trafficMap[k].matches++ })
+    messagesLast30.forEach(m => { const k = toKey(m.createdAt as unknown as Date); if (trafficMap[k]) trafficMap[k].messages++ })
+    paymentsLast30.forEach(p => { const k = toKey(p.createdAt as unknown as Date); if (trafficMap[k]) trafficMap[k].payments++ })
+    sessionsLast30.forEach(s => { const k = toKey(s.expires as unknown as Date); if (trafficMap[k]) trafficMap[k].sessions++ })
+    const trafficDaily = Object.values(trafficMap)
+
+    const providerBreakdown: Record<string, number> = {}
+    providerGroups.forEach(g => { providerBreakdown[g.provider] = g._count })
+    const oauthUsersCount = await db.account.count()
+    const totalUsersCount = await db.user.count()
+    const credentialsUsers = Math.max(totalUsersCount - oauthUsersCount, 0)
+    providerBreakdown['credentials'] = credentialsUsers
+
+    const genderBreakdown: Record<string, number> = {}
+    genderGroups.forEach(g => { if (g.gender) genderBreakdown[g.gender] = g._count })
+
+    const ageBuckets = { '17-24': 0, '25-34': 0, '35-44': 0, '45+': 0 }
+    profilesWithAge.forEach(p => {
+      const a = p.age as number
+      if (a < 25) ageBuckets['17-24']++
+      else if (a < 35) ageBuckets['25-34']++
+      else if (a < 45) ageBuckets['35-44']++
+      else ageBuckets['45+']++
+    })
+
+    const topCities = cityGroups
+      .filter(c => c.city)
+      .sort((a, b) => b._count - a._count)
+      .slice(0, 5)
+      .map(c => ({ city: c.city as string, count: c._count }))
+
     return NextResponse.json({
       overview: {
         totalUsers,
@@ -137,6 +214,19 @@ export async function GET(request: NextRequest) {
       recent: {
         users: recentUsers,
         payments: recentPayments
+      },
+      analytics: {
+        trafficDaily,
+        providerBreakdown,
+        sessions: {
+          totalActive: await db.session.count({ where: { expires: { gt: new Date() } } }),
+          totalSessions: await db.session.count()
+        },
+        demographics: {
+          gender: genderBreakdown,
+          ageBuckets,
+          topCities
+        }
       }
     })
 

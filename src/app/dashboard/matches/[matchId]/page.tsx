@@ -46,6 +46,9 @@ export default function MatchDetailPage() {
   const [error, setError] = useState('')
   const [showApproveDialog, setShowApproveDialog] = useState(false)
   const [approveAction, setApproveAction] = useState<string>('')
+  const [mutualStatus, setMutualStatus] = useState<{ status: 'none' | 'pending' | 'approved' | 'rejected'; step?: string } | null>(null)
+  const [isMutualLoading, setIsMutualLoading] = useState<boolean>(false)
+  const [justApproved, setJustApproved] = useState<boolean>(false)
 
   const loadMatchData = async () => {
     try {
@@ -69,6 +72,37 @@ export default function MatchDetailPage() {
   useEffect(() => {
     loadMatchData()
   }, [matchId])
+  
+  useEffect(() => {
+    const loadMutual = async () => {
+      if (!otherUser?.id) return
+      try {
+        setIsMutualLoading(true)
+        const res = await fetch(`/api/match?targetId=${otherUser.id}`)
+        const data = await res.json()
+        if (res.ok) {
+          if (data.match) {
+            setMutualStatus({ status: data.match.status, step: data.match.step })
+          } else {
+            setMutualStatus({ status: 'none' })
+          }
+        }
+      } finally {
+        setIsMutualLoading(false)
+      }
+    }
+    loadMutual()
+    const id = setInterval(loadMutual, 10000)
+    return () => clearInterval(id)
+  }, [otherUser?.id])
+  
+  useEffect(() => {
+    if (mutualStatus?.status === 'approved') {
+      setJustApproved(true)
+      const id = setTimeout(() => setJustApproved(false), 5000)
+      return () => clearTimeout(id)
+    }
+  }, [mutualStatus?.status])
 
   const handleAction = async (action: string) => {
     try {
@@ -100,6 +134,8 @@ export default function MatchDetailPage() {
     const labels: Record<string, string> = {
       profile_request: 'Request Profil',
       profile_viewed: 'Profil Dilihat',
+      requester_approved: 'Anda Menekan Lanjut',
+      target_approved: 'Pasangan Menekan Lanjut',
       photo_requested: 'Request Foto',
       photo_approved: 'Foto Disetujui',
       photo_rejected: 'Foto Ditolak',
@@ -149,7 +185,7 @@ export default function MatchDetailPage() {
   }
 
   const profile = otherUser.profile || {}
-  const initials = profile.initials || getInitials(otherUser.name || '')
+  const initials = getInitials(otherUser.name || '')
   const canViewProfile = match.status === 'approved' || match.step === 'profile_viewed' || match.step.startsWith('photo') || match.step.startsWith('full_data') || match.step === 'chatting'
   const canViewPhoto = match.step === 'photo_approved' || match.step === 'full_data_approved' || match.step === 'chatting'
   const canViewFullBiodata = match.step === 'full_data_approved' || match.step === 'chatting'
@@ -377,6 +413,77 @@ export default function MatchDetailPage() {
 
           {/* Right Column - Actions */}
           <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Lanjut / Tidak</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {justApproved && (
+                  <Alert className="bg-green-50 border-green-200 text-green-800">
+                    <CheckCircle className="h-4 w-4 text-green-600" />
+                    <AlertDescription>Match aktif! Chat dengan pasangan sekarang tersedia.</AlertDescription>
+                  </Alert>
+                )}
+                <div className="p-3 rounded-md border text-sm">
+                  {isMutualLoading ? (
+                    <span className="text-gray-500">Memuat status...</span>
+                  ) : (
+                    <>
+                      <span>Status: </span>
+                      <span className={`font-semibold ${mutualStatus?.status === 'approved' ? 'text-green-600' : mutualStatus?.status === 'rejected' ? 'text-red-600' : 'text-gray-700'}`}>
+                        {mutualStatus?.status === 'approved' ? 'Match Aktif' : mutualStatus?.status === 'rejected' ? 'Ditolak' : mutualStatus?.status === 'pending' ? 'Menunggu Persetujuan Kedua Pihak' : 'Belum Ada Aksi'}
+                      </span>
+                    </>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    className="flex-1 bg-rose-500 hover:bg-rose-600"
+                    disabled={mutualStatus?.status === 'approved' || mutualStatus?.status === 'rejected'}
+                    onClick={async () => {
+                      try {
+                        const res = await fetch('/api/match', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ decision: 'approve', targetId: otherUser.id })
+                        })
+                        const data = await res.json()
+                        if (!res.ok) throw new Error(data.error || 'Gagal mengirim persetujuan')
+                        setMutualStatus({ status: data.match?.status || 'pending', step: data.match?.step })
+                        await loadMatchData()
+                      } catch (err: any) {
+                        setError(err.message)
+                      }
+                    }}
+                  >
+                    Lanjut
+                  </Button>
+                  <Button
+                    className="flex-1"
+                    variant="outline"
+                    disabled={mutualStatus?.status === 'approved' || mutualStatus?.status === 'rejected'}
+                    onClick={async () => {
+                      try {
+                        const res = await fetch('/api/match', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ decision: 'reject', targetId: otherUser.id })
+                        })
+                        const data = await res.json()
+                        if (!res.ok) throw new Error(data.error || 'Gagal mengirim penolakan')
+                        setMutualStatus({ status: 'rejected', step: 'rejected' })
+                        await loadMatchData()
+                      } catch (err: any) {
+                        setError(err.message)
+                      }
+                    }}
+                  >
+                    Tidak
+                  </Button>
+                </div>
+                <p className="text-xs text-gray-500">Match aktif jika Anda dan pasangan sama‑sama memilih “Lanjut”.</p>
+              </CardContent>
+            </Card>
             {/* Match Progress */}
             <Card>
               <CardHeader>

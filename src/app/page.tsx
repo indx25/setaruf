@@ -165,7 +165,7 @@ export default function AuthPage() {
                 </h1>
               </div>
               <p className="text-lg text-gray-600 font-medium leading-relaxed pl-1">
-                "Platform Setaruf untuk Pernikahan Serius"
+                "Platform Ta'aruf untuk Pernikahan Serius"
               </p>
             </div>
 
@@ -231,7 +231,7 @@ export default function AuthPage() {
 
               <CardContent className="relative z-10">
                 <p className="text-center text-sm font-semibold text-gray-700 mb-3">
-                  Temukan Pasangan Sejati yang Mengerti Kamu
+                  Metode Ta'aruf online untuk semua Kalangan & agama
                 </p>
                 <Tabs defaultValue="login" className="w-full">
                   <TabsList className="grid w-full grid-cols-2 bg-gray-100/50 border border-gray-200/50">

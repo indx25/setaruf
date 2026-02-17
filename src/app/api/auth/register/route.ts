@@ -16,7 +16,7 @@ function getClientKey(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const { email, password, quiz } = await request.json()
+    const { email, password, quiz, dateOfBirth } = await request.json()
 
     // Validasi input
     if (!email || !password) {
@@ -74,7 +74,32 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Catatan: validasi usia dihapus sesuai perubahan form signup
+    // Validasi usia minimal 18 tahun
+    if (!dateOfBirth) {
+      return NextResponse.json(
+        { error: 'Tanggal lahir wajib diisi' },
+        { status: 400 }
+      )
+    }
+    const dob = new Date(dateOfBirth)
+    if (isNaN(dob.getTime())) {
+      return NextResponse.json(
+        { error: 'Format tanggal lahir tidak valid' },
+        { status: 400 }
+      )
+    }
+    const today = new Date()
+    let age = today.getFullYear() - dob.getFullYear()
+    const m = today.getMonth() - dob.getMonth()
+    if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) {
+      age--
+    }
+    if (age < 18) {
+      return NextResponse.json(
+        { error: 'Umur minimal 18 tahun untuk mendaftar' },
+        { status: 400 }
+      )
+    }
 
     // Cek apakah email sudah terdaftar
     const existingUser = await db.user.findUnique({
@@ -102,6 +127,11 @@ export async function POST(request: NextRequest) {
         uniqueCode,
         isBlocked: false,
         workflowStatus: 'biodata',
+        profile: {
+          create: {
+            dateOfBirth: dob,
+          }
+        }
       }
     })
 

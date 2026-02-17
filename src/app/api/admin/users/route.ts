@@ -1,13 +1,16 @@
+export const runtime = 'nodejs'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { cookies } from 'next/headers'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 import bcrypt from 'bcryptjs'
 
 // GET - List all users (admin only)
 export async function GET(request: NextRequest) {
   try {
-    const cookieStore = cookies()
-    const userId = cookieStore.get('userId')?.value
+    const session = await getServerSession(authOptions)
+    const userId = (session?.user as any)?.id as string | undefined
 
     if (!userId) {
       return NextResponse.json(
@@ -32,13 +35,37 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1')
     const limit = parseInt(searchParams.get('limit') || '20')
     const search = searchParams.get('search') || ''
+    const gender = searchParams.get('gender') || ''
+    const blocked = searchParams.get('blocked') || '' // 'true' | 'false'
+    const premium = searchParams.get('premium') || '' // 'true' | 'false'
+    const hasProfile = searchParams.get('hasProfile') || '' // 'true' | 'false'
+    const city = searchParams.get('city') || ''
+    const minAge = parseInt(searchParams.get('minAge') || '')
+    const maxAge = parseInt(searchParams.get('maxAge') || '')
 
-    const where = search ? {
-      OR: [
+    const where: any = {}
+    if (search) {
+      where.OR = [
         { name: { contains: search } },
         { email: { contains: search } }
       ]
-    } : {}
+    }
+    if (blocked === 'true') where.isBlocked = true
+    if (blocked === 'false') where.isBlocked = false
+    if (premium === 'true') where.isPremium = true
+    if (premium === 'false') where.isPremium = false
+    if (gender || city || !isNaN(minAge) || !isNaN(maxAge) || hasProfile) {
+      where.profile = {}
+      if (gender) where.profile.gender = gender
+      if (city) where.profile.city = { contains: city }
+      if (!isNaN(minAge) || !isNaN(maxAge)) {
+        where.profile.age = {}
+        if (!isNaN(minAge)) where.profile.age.gte = minAge
+        if (!isNaN(maxAge)) where.profile.age.lte = maxAge
+      }
+      if (hasProfile === 'true') where.profile.NOT = null
+      if (hasProfile === 'false') where.profile = null
+    }
 
     const [users, total] = await Promise.all([
       db.user.findMany({

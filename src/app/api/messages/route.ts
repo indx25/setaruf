@@ -1,17 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 
 // POST /api/messages - Send message (fallback if WebSocket fails)
 export async function POST(request: NextRequest) {
   try {
-    // Get session from cookie
-    const sessionCookie = request.cookies.get('session')
-    if (!sessionCookie) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    const session = JSON.parse(sessionCookie.value)
-    const userId = session.userId
+    const session = await getServerSession(authOptions)
+    const userId = (session?.user as any)?.id as string | undefined
 
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

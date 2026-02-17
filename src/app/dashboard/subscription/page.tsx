@@ -211,7 +211,7 @@ export default function SubscriptionPage() {
         )}
 
         {/* Current Subscription Card */}
-        <Card className="mb-6">
+        <Card className="mb-6 border-2 border-pink-200 shadow-lg drop-shadow-[0_10px_20px_rgba(244,114,182,0.35)]">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -417,7 +417,7 @@ export default function SubscriptionPage() {
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle className="w-5 h-5 text-green-500" />
-                <span>Fitur chat tanpa batas</span>
+                <span>Prioritas</span>
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle className="w-5 h-5 text-green-500" />

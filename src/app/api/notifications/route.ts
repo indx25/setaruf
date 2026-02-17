@@ -1,59 +1,55 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 import { db } from '@/lib/db'
 
-// GET /api/notifications - Get user notifications
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    // Get session from cookie
-    const sessionCookie = request.cookies.get('session')
-    if (!sessionCookie) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+    const session = await getServerSession(authOptions)
+    const userId = (session?.user as any)?.id as string | undefined
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const session = JSON.parse(sessionCookie.value)
-    const userId = session.userId
-
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
-
-    // Get query parameters
-    const { searchParams } = new URL(request.url)
-    const unreadOnly = searchParams.get('unreadOnly') === 'true'
-    const limit = parseInt(searchParams.get('limit') || '50')
-    const offset = parseInt(searchParams.get('offset') || '0')
-
-    // Build where clause
-    const where: any = { userId }
-    if (unreadOnly) {
-      where.isRead = false
-    }
-
-    // Fetch notifications
     const notifications = await db.notification.findMany({
-      where,
-      orderBy: {
-        createdAt: 'desc',
-      },
-      take: limit,
-      skip: offset,
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
     })
 
-    // Count total unread notifications
-    const unreadCount = await db.notification.count({
-      where: {
-        userId,
-        isRead: false,
-      },
-    })
-
-    return NextResponse.json({
-      notifications,
-      unreadCount,
-      total: notifications.length,
-    })
+    return NextResponse.json({ notifications })
   } catch (error) {
-    console.error('Error fetching notifications:', error)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    return NextResponse.json({ error: 'Gagal mengambil notifikasi' }, { status: 500 })
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const session = await getServerSession(authOptions)
+    const userId = (session?.user as any)?.id as string | undefined
+    if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+    const body = await request.json().catch(() => ({}))
+    const action = String(body?.action || '')
+
+    if (action === 'markAllRead') {
+      await db.notification.updateMany({
+        where: { userId, isRead: false },
+        data: { isRead: true },
+      })
+      return NextResponse.json({ success: true })
+    }
+
+    if (action === 'markOneRead') {
+      const id = String(body?.id || '')
+      if (!id) return NextResponse.json({ error: 'ID tidak valid' }, { status: 400 })
+      await db.notification.update({
+        where: { id },
+        data: { isRead: true },
+      })
+      return NextResponse.json({ success: true })
+    }
+
+    return NextResponse.json({ error: 'Action tidak dikenal' }, { status: 400 })
+  } catch (error) {
+    return NextResponse.json({ error: 'Gagal memperbarui notifikasi' }, { status: 500 })
   }
 }

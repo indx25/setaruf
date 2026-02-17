@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 
 // POST /api/matches/[matchId]/request - Request to view profile
 export async function POST(
@@ -7,7 +9,8 @@ export async function POST(
   { params }: { params: { matchId: string } }
 ) {
   try {
-    const userId = request.cookies.get('userId')?.value
+    const session = await getServerSession(authOptions)
+    const userId = (session?.user as any)?.id as string | undefined
 
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -70,7 +73,7 @@ export async function POST(
         userId: match.targetId,
         type: 'match_request',
         title: 'Permintaan Lihat Profil',
-        message: `${match.requester.profile?.initials || match.requester.name || 'Seseorang'} ingin melihat profil Anda`,
+        message: `${match.requester.name || 'Seseorang'} ingin melihat profil Anda`,
         link: `/dashboard/matches/${matchId}`,
       },
     })

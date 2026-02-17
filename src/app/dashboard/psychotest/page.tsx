@@ -327,6 +327,20 @@ export default function PsychotestPage() {
       ...prev,
       [currentQuestion.id]: parseInt(value)
     }))
+
+    // Auto-advance to next question (or submit if last)
+    setTimeout(() => {
+      if (!currentCategory) return
+      const cat = testCategories[currentCategory]
+      const isLast = currentQuestionIndex >= cat.questions.length - 1
+      if (isLast) {
+        if (!isSubmitting) {
+          submitTest()
+        }
+      } else {
+        setCurrentQuestionIndex(prev => prev + 1)
+      }
+    }, 50)
   }
 
   const handleNext = () => {
@@ -484,9 +498,10 @@ export default function PsychotestPage() {
             <CardHeader>
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-3">
-                  {currentTest && React.createElement(currentTest.icon, {
-                    className: 'w-6 h-6 text-rose-500'
-                  })}
+                  {(() => {
+                    const Icon = currentTest?.icon
+                    return Icon ? <Icon className="w-6 h-6 text-rose-500" /> : null
+                  })()}
                   <div>
                     <CardTitle>{currentTest?.title}</CardTitle>
                     <CardDescription>

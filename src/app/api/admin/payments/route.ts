@@ -1,12 +1,15 @@
+export const runtime = 'nodejs'
+
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { cookies } from 'next/headers'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 
 // GET - List all payments (admin only)
 export async function GET(request: NextRequest) {
   try {
-    const cookieStore = cookies()
-    const userId = cookieStore.get('userId')?.value
+    const session = await getServerSession(authOptions)
+    const userId = (session?.user as any)?.id as string | undefined
 
     if (!userId) {
       return NextResponse.json(
@@ -31,8 +34,15 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1')
     const limit = parseInt(searchParams.get('limit') || '20')
     const status = searchParams.get('status') || ''
+    const daysParam = parseInt(searchParams.get('days') || '')
+    const days = !isNaN(daysParam) ? Math.min(Math.max(daysParam, 1), 365) : null
 
-    const where = status ? { status } : {}
+    const where: any = status ? { status } : {}
+    if (days) {
+      const start = new Date()
+      start.setDate(start.getDate() - days)
+      where.createdAt = { gte: start }
+    }
 
     const [payments, total] = await Promise.all([
       db.payment.findMany({

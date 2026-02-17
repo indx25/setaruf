@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import ZAI from 'z-ai-web-dev-sdk'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 
 // Helper function to calculate match percentage based on psychotest scores
 function calculateMatchPercentage(
@@ -46,8 +48,8 @@ function calculateMatchPercentage(
 
 export async function GET(request: NextRequest) {
   try {
-    // Get user from session cookie
-    const userId = request.cookies.get('userId')?.value
+    const session = await getServerSession(authOptions)
+    const userId = (session?.user as any)?.id as string | undefined
 
     if (!userId) {
       return NextResponse.json(
@@ -89,7 +91,8 @@ export async function GET(request: NextRequest) {
         id: { not: userId },
         isBlocked: false,
         profile: {
-          gender: targetGender
+          gender: targetGender,
+          religion: currentUser.profile?.religion || undefined
         }
       },
       include: {
@@ -198,11 +201,15 @@ Berikan alasan dalam 1-2 kalimat dalam Bahasa Indonesia.`
         })
 
         if (targetUser) {
+          const getInitials = (name?: string | null) => {
+            if (!name) return ''
+            return name.split(' ').map(n => n[0]?.toUpperCase() || '').join('').slice(0, 2)
+          }
           results.push({
             id: newMatch.id,
             targetId: targetUser.id,
             targetName: targetUser.name || 'Unknown',
-            targetInitials: targetUser.profile?.initials,
+            targetInitials: getInitials(targetUser.name || ''),
             targetAvatar: targetUser.avatar,
             targetAge: targetUser.profile?.age,
             targetOccupation: targetUser.profile?.occupation,
@@ -217,6 +224,7 @@ Berikan alasan dalam 1-2 kalimat dalam Bahasa Indonesia.`
     const existingMatchesData = await db.match.findMany({
       where: {
         requesterId: userId,
+        targetId: { not: userId },
         status: { in: ['pending', 'approved'] }
       },
       include: {
@@ -228,11 +236,15 @@ Berikan alasan dalam 1-2 kalimat dalam Bahasa Indonesia.`
       take: 10
     })
 
+    const getInitials2 = (name?: string | null) => {
+      if (!name) return ''
+      return name.split(' ').map(n => n[0]?.toUpperCase() || '').join('').slice(0, 2)
+    }
     const formattedExistingMatches = existingMatchesData.map(match => ({
       id: match.id,
       targetId: match.targetId,
       targetName: match.target.name || 'Unknown',
-      targetInitials: match.target.profile?.initials,
+      targetInitials: getInitials2(match.target.name || ''),
       targetAvatar: match.target.avatar,
       targetAge: match.target.profile?.age,
       targetOccupation: match.target.profile?.occupation,
