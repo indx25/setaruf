@@ -43,11 +43,20 @@ const occupations = ['Software Engineer', 'Teacher', 'Doctor', 'Nurse', 'Entrepr
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await getServerSession(authOptions)
-    const adminId = (session?.user as any)?.id
-    if (!adminId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    const admin = await db.user.findUnique({ where: { id: adminId } })
-    if (!admin?.isAdmin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const bootstrapToken = request.headers.get('x-bootstrap-token')
+    const canBootstrap =
+      process.env.ALLOW_ADMIN_TOOLS === 'true' &&
+      !!bootstrapToken &&
+      bootstrapToken === process.env.BOOTSTRAP_TOKEN
+
+    let adminId: string | undefined
+    if (!canBootstrap) {
+      const session = await getServerSession(authOptions)
+      adminId = (session?.user as any)?.id
+      if (!adminId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+      const admin = await db.user.findUnique({ where: { id: adminId } })
+      if (!admin?.isAdmin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
 
     const usersSeed: SampleUser[] = [...baseSamples]
 
@@ -180,7 +189,7 @@ export async function POST(request: NextRequest) {
             accountName: 'Indra Gunawan',
             accountNumber: '1084421955',
             status,
-            approvedBy: status === 'approved' ? adminId : null,
+            approvedBy: status === 'approved' ? adminId || null : null,
             approvedAt: status === 'approved' ? new Date() : null,
             rejectedAt: status === 'rejected' ? new Date() : null
           }
