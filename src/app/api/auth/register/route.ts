@@ -16,6 +16,14 @@ function getClientKey(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    try {
+      await db.$connect()
+    } catch {
+      return NextResponse.json(
+        { error: 'Database tidak dapat diakses. Periksa DATABASE_URL di Vercel.' },
+        { status: 500 }
+      )
+    }
     const { email, password, quiz, dateOfBirth } = await request.json()
 
     // Validasi input
@@ -180,9 +188,16 @@ export async function POST(request: NextRequest) {
     return response
 
   } catch (error) {
-    console.error('Register error:', error)
+    const raw = error instanceof Error ? (error.message || '') : ''
+    const migrationHint =
+      /relation .* does not exist/i.test(raw) ||
+      /table .* does not exist/i.test(raw) ||
+      /no such table/i.test(raw)
+        ? 'Database belum dimigrasi di produksi. Jalankan prisma migrate deploy.'
+        : ''
+    const message = migrationHint || (raw || 'Terjadi kesalahan saat registrasi')
     return NextResponse.json(
-      { error: 'Terjadi kesalahan saat registrasi' },
+      { error: message },
       { status: 500 }
     )
   }

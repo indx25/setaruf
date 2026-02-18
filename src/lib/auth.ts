@@ -26,6 +26,7 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         try {
+          try { await db.$connect() } catch { throw new Error('Database tidak dapat diakses') }
           const email = String(credentials?.email || '').trim().toLowerCase()
           const password = String(credentials?.password || '')
           const quizPayloadRaw = String(credentials?.quiz || '')
@@ -92,8 +93,9 @@ export const authOptions: NextAuthOptions = {
             name: user.name || '',
             email: user.email,
           }
-        } catch {
-          try { console.warn('AUTH_DEBUG', { reason: 'authorize_exception' }) } catch {}
+        } catch (e) {
+          const reason = e instanceof Error ? e.message : 'authorize_exception'
+          try { console.warn('AUTH_DEBUG', { reason }) } catch {}
           return null
         }
       }
