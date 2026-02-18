@@ -33,19 +33,6 @@ export const authOptions: NextAuthOptions = {
           try { quiz = JSON.parse(quizPayloadRaw) } catch {}
           const log = (reason: string) => { try { console.warn('AUTH_DEBUG', { reason, email }) } catch {} }
 
-          const rlKey = `quiz:login:${email}`
-          if (isBlocked(rlKey)) {
-            log('rate_limited')
-            throw new Error('Terlalu banyak jawaban salah. Coba lagi nanti.')
-          }
-
-          const quizResult = await verifyQuiz(quiz)
-          if (!quizResult.success) {
-            recordWrongQuizAttempt(rlKey)
-            log('quiz_invalid')
-            throw new Error('Verifikasi quiz gagal')
-          }
-
           const user = await db.user.findUnique({
             where: { email },
           })
@@ -53,6 +40,20 @@ export const authOptions: NextAuthOptions = {
           if (!user || user.isBlocked) {
             log(!user ? 'user_not_found' : 'user_blocked')
             return null
+          }
+
+          if (!user.isAdmin) {
+            const rlKey = `quiz:login:${email}`
+            if (isBlocked(rlKey)) {
+              log('rate_limited')
+              throw new Error('Terlalu banyak jawaban salah. Coba lagi nanti.')
+            }
+            const quizResult = await verifyQuiz(quiz)
+            if (!quizResult.success) {
+              recordWrongQuizAttempt(rlKey)
+              log('quiz_invalid')
+              throw new Error('Verifikasi quiz gagal')
+            }
           }
 
           const valid = await bcrypt.compare(password, user.password)

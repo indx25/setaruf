@@ -21,12 +21,10 @@ export default function AdminLoginPage() {
     setError('')
     setLoading(true)
     try {
-      const quiz = { a: 1, b: 1, op: '+', answer: 2 }
       const res = await signIn('credentials', {
         redirect: false,
         email,
         password,
-        quiz: JSON.stringify(quiz),
       })
       if (!res || !res.ok) {
         setError('Login gagal. Pastikan email, password, dan quiz valid.')
