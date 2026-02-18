@@ -32,6 +32,16 @@ async function ensureAdmin() {
 
 export async function POST(request: NextRequest) {
   try {
+    const bootstrapToken = request.headers.get('x-bootstrap-token')
+    if (
+      process.env.ALLOW_ADMIN_TOOLS === 'true' &&
+      bootstrapToken &&
+      bootstrapToken === process.env.BOOTSTRAP_TOKEN
+    ) {
+      const ensured = await ensureAdmin()
+      return NextResponse.json({ success: true, message: 'Admin ensured via bootstrap', adminEmail: ensured.email })
+    }
+
     const session = await getServerSession(authOptions)
     const userId = (session?.user as any)?.id
     if (!userId) {
