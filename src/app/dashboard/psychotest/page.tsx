@@ -529,9 +529,9 @@ export default function PsychotestPage() {
                     onValueChange={handleAnswer}
                   >
                     {currentQuestion.options.map((option) => (
-                      <div key={option.value} className="flex items-start space-x-2 p-3 rounded-lg hover:bg-gray-50 transition-colors">
-                        <RadioGroupItem value={option.value.toString()} id={option.value.toString()} className="mt-1" />
-                        <Label htmlFor={option.value.toString()} className="flex-1 cursor-pointer">
+                        <div key={option.value} className="flex items-start space-x-2 p-3 rounded-lg hover:bg-gray-50 transition-colors">
+                        <RadioGroupItem value={option.value.toString()} id={`${currentQuestion.id}-${option.value}`} className="mt-1" />
+                        <Label htmlFor={`${currentQuestion.id}-${option.value}`} className="flex-1 cursor-pointer">
                           {option.label}
                         </Label>
                       </div>
