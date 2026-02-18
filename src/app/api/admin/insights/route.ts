@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { throttle } from '@/lib/rate-limit'
 
 // GET - Get web insights (admin only)
 export async function GET(request: NextRequest) {
@@ -29,6 +30,12 @@ export async function GET(request: NextRequest) {
         { status: 403 }
       )
     }
+
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@setaruf.com'
+    const baseLimit = 10
+    const limitPerMin = admin.email === adminEmail ? baseLimit * 3 : baseLimit
+    const allowed = await throttle(`admin:${userId}:insights`, limitPerMin, 60_000)
+    if (!allowed) return NextResponse.json({ error: 'Rate limit. Coba lagi nanti.' }, { status: 429 })
 
     // Get all counts
     const [
@@ -187,7 +194,7 @@ export async function GET(request: NextRequest) {
       .slice(0, 5)
       .map(c => ({ city: c.city as string, count: c._count }))
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       overview: {
         totalUsers,
         premiumUsers,
@@ -229,6 +236,8 @@ export async function GET(request: NextRequest) {
         }
       }
     })
+    res.headers.set('Cache-Control', 'private, max-age=30')
+    return res
 
   } catch (error) {
     console.error('Get insights error:', error)

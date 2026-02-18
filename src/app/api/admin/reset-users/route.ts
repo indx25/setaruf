@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { throttle } from '@/lib/rate-limit'
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,6 +21,9 @@ export async function POST(request: NextRequest) {
     if (process.env.ALLOW_ADMIN_TOOLS !== 'true') {
       return NextResponse.json({ error: 'Admin tools disabled' }, { status: 403 })
     }
+
+    const allowed = await throttle(`admin:${userId}:reset-users`, 1, 10 * 60_000)
+    if (!allowed) return NextResponse.json({ error: 'Rate limit. Coba lagi nanti.' }, { status: 429 })
 
     await db.message.deleteMany({})
     await db.match.deleteMany({})

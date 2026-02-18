@@ -19,10 +19,20 @@ export async function POST(request: NextRequest) {
     if (!file) {
       return NextResponse.json({ error: 'No file' }, { status: 400 })
     }
+    const allowed = ['image/jpeg', 'image/png']
+    const maxSize = 10 * 1024 * 1024
+    const mime = file.type || 'application/octet-stream'
+    const size = (file as any).size as number | undefined
+    if (!allowed.includes(mime)) {
+      return NextResponse.json({ error: 'Invalid file type' }, { status: 400 })
+    }
+    if (typeof size === 'number' && size > maxSize) {
+      return NextResponse.json({ error: 'File too large' }, { status: 400 })
+    }
 
     const bytes = await file.arrayBuffer()
     const buffer = Buffer.from(bytes)
-    const ext = file.type.includes('png') ? 'png' : 'jpg'
+    const ext = mime.includes('png') ? 'png' : 'jpg'
     const filename = `photo-${Date.now()}.${ext}`
     const key = `users/${userId}/${filename}`
 

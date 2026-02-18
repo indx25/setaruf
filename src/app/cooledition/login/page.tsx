@@ -22,22 +22,14 @@ export default function AdminLoginPage() {
     setLoading(true)
     try {
       const res = await signIn('credentials', {
-        redirect: false,
         email,
         password,
+        callbackUrl: '/cooledition',
       })
-      if (!res || !res.ok) {
+      if (!res) return
+      if (typeof res === 'object' && 'ok' in res && res.ok === false) {
         setError('Login gagal. Pastikan email dan password valid.')
         return
-      }
-      const check = await fetch('/api/admin/insights', { credentials: 'include' })
-      if (check.ok) {
-        router.push('/cooledition')
-      } else {
-        setError('Login berhasil, namun sesi belum aktif. Coba refresh.')
-        setTimeout(() => {
-          window.location.href = '/cooledition'
-        }, 500)
       }
     } catch {
       setError('Terjadi kesalahan saat login')

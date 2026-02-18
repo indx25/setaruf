@@ -17,6 +17,17 @@ export async function POST(request: NextRequest) {
     }
 
     const { paymentId, proofUrl } = await request.json()
+    if (typeof proofUrl !== 'string' || proofUrl.length > 2048) {
+      return NextResponse.json({ error: 'URL bukti tidak valid' }, { status: 400 })
+    }
+    try {
+      const u = new URL(proofUrl)
+      if (!['http:', 'https:'].includes(u.protocol)) {
+        return NextResponse.json({ error: 'URL harus http/https' }, { status: 400 })
+      }
+    } catch {
+      return NextResponse.json({ error: 'URL bukti tidak valid' }, { status: 400 })
+    }
 
     if (!paymentId || !proofUrl) {
       return NextResponse.json(

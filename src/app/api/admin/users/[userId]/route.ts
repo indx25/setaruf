@@ -4,7 +4,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { cookies } from 'next/headers'
 import bcrypt from 'bcryptjs'
 
 // GET - Get single user (admin only)
@@ -78,8 +77,8 @@ export async function PATCH(
   { params }: { params: { userId: string } }
 ) {
   try {
-    const cookieStore = await cookies()
-    const adminUserId = cookieStore.get('userId')?.value
+    const session = await getServerSession(authOptions)
+    const adminUserId = (session?.user as any)?.id as string | undefined
 
     if (!adminUserId) {
       return NextResponse.json(
@@ -139,8 +138,8 @@ export async function DELETE(
   { params }: { params: { userId: string } }
 ) {
   try {
-    const cookieStore = await cookies()
-    const adminUserId = cookieStore.get('userId')?.value
+    const session = await getServerSession(authOptions)
+    const adminUserId = (session?.user as any)?.id as string | undefined
 
     if (!adminUserId) {
       return NextResponse.json(

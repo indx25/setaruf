@@ -3,9 +3,16 @@ export const runtime = 'nodejs'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import bcrypt from 'bcryptjs'
+import { throttle } from '@/lib/rate-limit'
 
 export async function POST(request: NextRequest) {
   try {
+    const xf = request.headers.get('x-forwarded-for') || ''
+    const ip = xf.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'unknown'
+    const allowed = await throttle(`admin-login:${ip}`, 5, 60_000)
+    if (!allowed) {
+      return NextResponse.json({ error: 'Terlalu banyak percobaan. Coba lagi nanti.' }, { status: 429 })
+    }
     const { email, password } = await request.json()
     const normalizedEmail = String(email || '').trim().toLowerCase()
     const user = await db.user.findUnique({ where: { email: normalizedEmail } })

@@ -2,7 +2,8 @@ export const runtime = 'nodejs'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { cookies } from 'next/headers'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 
 // POST - Approve or reject payment (admin only)
 export async function POST(
@@ -10,8 +11,8 @@ export async function POST(
   { params }: { params: { paymentId: string } }
 ) {
   try {
-    const cookieStore = await cookies()
-    const adminUserId = cookieStore.get('userId')?.value
+    const session = await getServerSession(authOptions)
+    const adminUserId = (session?.user as any)?.id as string | undefined
 
     if (!adminUserId) {
       return NextResponse.json(
@@ -20,7 +21,6 @@ export async function POST(
       )
     }
 
-    // Check if admin
     const admin = await db.user.findUnique({
       where: { id: adminUserId }
     })

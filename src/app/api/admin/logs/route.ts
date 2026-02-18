@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { throttle } from '@/lib/rate-limit'
 
 type LogItem = {
   id: string
@@ -23,6 +24,12 @@ export async function GET(request: NextRequest) {
 
     const admin = await db.user.findUnique({ where: { id: userId } })
     if (!admin?.isAdmin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@setaruf.com'
+    const baseLimit = 15
+    const limitPerMin = admin.email === adminEmail ? baseLimit * 3 : baseLimit
+    const allowed = await throttle(`admin:${userId}:logs`, limitPerMin, 60_000)
+    if (!allowed) return NextResponse.json({ error: 'Rate limit. Coba lagi nanti.' }, { status: 429 })
 
     const { searchParams } = new URL(request.url)
     const limit = Math.min(parseInt(searchParams.get('limit') || '200', 10), 500)
@@ -159,7 +166,9 @@ export async function GET(request: NextRequest) {
     })
     const sorted = filtered.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()).slice(0, limit)
 
-    return NextResponse.json({ logs: sorted })
+    const res = NextResponse.json({ logs: sorted })
+    res.headers.set('Cache-Control', 'private, max-age=30')
+    return res
   } catch (error) {
     console.error('Admin logs error:', error)
     return NextResponse.json({ error: 'Gagal memuat log aktivitas' }, { status: 500 })

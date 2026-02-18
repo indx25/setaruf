@@ -24,9 +24,12 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, PieChart, Pie, Cell, LabelList } from 'recharts'
 import { 
   Home, User, MessageSquare, FileText, CreditCard, Settings, Bell, Search, Heart,
-  TrendingUp, Clock, ChevronRight, CheckCircle, AlertTriangle, LogOut, Edit, RotateCcw, Menu, Phone, Instagram, Lightbulb
+  TrendingUp, Clock, ChevronRight, CheckCircle, AlertTriangle, LogOut, Edit, RotateCcw, Menu, Phone, Instagram, Lightbulb, XCircle, HelpCircle
 } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
+import { Drawer, DrawerContent } from '@/components/ui/drawer'
 import { Progress } from '@/components/ui/progress'
+import { toast } from '@/hooks/use-toast'
 
 // --- Interfaces & Constants ---
 
@@ -138,6 +141,8 @@ export default function DashboardPage() {
   const [endDateLabel, setEndDateLabel] = useState<string>("")
   const [notifItems, setNotifItems] = useState<Array<{ id: string; title: string; message: string; link?: string | null; isRead: boolean; createdAt: string; type: string }>>([])
   const [isLoadingNotif, setIsLoadingNotif] = useState(false)
+  const [showTutorial, setShowTutorial] = useState(false)
+  const [tutorialStep, setTutorialStep] = useState(0)
   
   // Filter States
   const [ageMin, setAgeMin] = useState<string>("")
@@ -197,6 +202,20 @@ export default function DashboardPage() {
     } else { setTimeLeft(null) }
   }
 
+  useEffect(() => {
+    try {
+      const seen = document.cookie.split(';').map(s => s.trim()).find(s => s.startsWith('setaruf_tutorial_seen='))
+      if (!seen) setShowTutorial(true)
+    } catch {}
+  }, [])
+
+  const handleTutorialChoice = (route: string) => {
+    try {
+      document.cookie = `setaruf_tutorial_seen=1; path=/; max-age=${60 * 60 * 24 * 365}`
+    } catch {}
+    setShowTutorial(false)
+    router.push(route)
+  }
   const loadDashboardData = async () => {
     try {
       const response = await fetch('/api/dashboard')
@@ -275,7 +294,7 @@ export default function DashboardPage() {
   const displayedMatches = useMemo(() => {
     const ready = !!(data?.flags?.profileCompleted && data?.flags?.psychotestCompleted)
     if (!ready) return []
-    const list = [...(data?.matches || [])].filter(m => {
+    let list = [...(data?.matches || [])].filter(m => {
       const myGender = data?.profile?.gender
       const myReligion = data?.profile?.religion
       const okAdult = (m.targetAge ?? 0) >= 18
@@ -283,6 +302,7 @@ export default function DashboardPage() {
       const okReligion = myReligion ? (m.targetReligion && m.targetReligion === myReligion) : true
       return okAdult && okGender && okReligion
     })
+    list = list.filter(m => (m.matchStep === 'profile_viewed') || (m.matchStatus === 'approved')).slice(0, 50)
     const profileAge = data?.profile?.age
     const defaultMinA = typeof profileAge === 'number' ? Math.max(18, profileAge - 5) : undefined
     const defaultMaxA = typeof profileAge === 'number' ? profileAge + 5 : undefined
@@ -304,17 +324,17 @@ export default function DashboardPage() {
     }
 
     let step = filterList(list, minA, maxA, cityPref, minP)
-    if (step.length >= 10) return step.slice(0, 10)
+    if (step.length >= 5) return step.slice(0, 5)
     step = filterList(list, minA, maxA, undefined, minP)
-    if (step.length >= 10) return step.slice(0, 10)
+    if (step.length >= 5) return step.slice(0, 5)
     const expandedMin = typeof minA === 'number' ? Math.max(18, minA - 5) : minA
     const expandedMax = typeof maxA === 'number' ? (maxA + 5) : maxA
     step = filterList(list, expandedMin, expandedMax, undefined, minP)
-    if (step.length >= 10) return step.slice(0, 10)
+    if (step.length >= 5) return step.slice(0, 5)
     const loweredP = isNaN(minP) ? minP : Math.max(30, minP - 10)
     step = filterList(list, expandedMin, expandedMax, undefined, loweredP)
-    if (step.length >= 10) return step.slice(0, 10)
-    return filterList(list, undefined, undefined, undefined, undefined).slice(0, 10)
+    if (step.length >= 5) return step.slice(0, 5)
+    return filterList(list, undefined, undefined, undefined, undefined).slice(0, 5)
   }, [data, ageMin, ageMax, cityQ, minMatch])
 
   // --- Render Helpers ---
@@ -350,6 +370,99 @@ export default function DashboardPage() {
     </Card>
   )
 
+  const getFirstLastInitials = (name?: string | null) => {
+    if (!name) return ''
+    const parts = name.trim().split(/\s+/)
+    const first = parts[0]?.[0]?.toUpperCase() || ''
+    const last = (parts.length > 1 ? parts[parts.length - 1]?.[0] : parts[0]?.[0])?.toUpperCase() || ''
+    return `${first}${last}`
+  }
+
+  const canShowPhotoForCard = (match: any) => {
+    const step = match.matchStep || ''
+    return step === 'mutual_liked'
+  }
+
+  const getTopCandidate = () => {
+    return (displayedMatches && displayedMatches.length > 0) ? displayedMatches[0] : null
+  }
+
+  const tutorialRequestTopProfile = async () => {
+    const cand = getTopCandidate()
+    if (!cand) return
+    const res = await fetch(`/api/matches/${cand.id}/request`, { method: 'POST' })
+    const json = await res.json()
+    if (res.ok) {
+      try { document.cookie = `setaruf_tutorial_seen=1; path=/; max-age=${60 * 60 * 24 * 365}` } catch {}
+      setShowTutorial(false)
+      router.push(`/dashboard/matches/${cand.id}`)
+    } else { alert(json.error || 'Gagal mengirim permintaan lihat profil.') }
+  }
+
+  const tutorialLikeTopCandidate = async () => {
+    const cand = getTopCandidate()
+    if (!cand) return
+    const res = await fetch(`/api/matches/${cand.id}/like`, { method: 'POST' })
+    const json = await res.json()
+    if (res.ok) {
+      setData(prev => {
+        if (!prev) return prev
+        const updated = (prev.matches || []).map(m => m.id === cand.id ? { ...m, matchStatus: 'liked', matchStep: json.step || m.matchStep } : m)
+        return { ...prev, matches: updated }
+      })
+      try { document.cookie = `setaruf_tutorial_seen=1; path=/; max-age=${60 * 60 * 24 * 365}` } catch {}
+      setShowTutorial(false)
+      router.push(`/dashboard`)
+    } else { alert(json.error || 'Gagal menyukai profil.') }
+  }
+
+  const tutorialDislikeTopCandidate = async () => {
+    const cand = getTopCandidate()
+    if (!cand) return
+    const res = await fetch(`/api/matches/${cand.id}/dislike`, { method: 'POST' })
+    const json = await res.json()
+    if (res.ok) {
+      setData(prev => {
+        if (!prev) return prev
+        const updated = (prev.matches || []).filter(m => m.id !== cand.id)
+        return { ...prev, matches: updated }
+      })
+      try { document.cookie = `setaruf_tutorial_seen=1; path=/; max-age=${60 * 60 * 24 * 365}` } catch {}
+      setShowTutorial(false)
+      router.push(`/dashboard`)
+    } else { alert(json.error || 'Gagal menolak profil.') }
+  }
+
+  const tutorialOpenContactTopCandidate = async (platform: 'whatsapp' | 'instagram') => {
+    const cand = getTopCandidate()
+    if (!cand) return
+    const allow = (cand.matchStep === 'mutual_liked') || ((cand.matchStatus === 'liked') && (cand.matchStep === 'profile_viewed'))
+    if (platform === 'whatsapp') {
+      if (allow && cand.targetWhatsapp) {
+        const num = (cand.targetWhatsapp || '').replace(/[^0-9]/g, '')
+        window.open(`https://wa.me/${num}`, '_blank')
+      } else {
+        const res = await fetch(`/api/matches/${cand.id}/request-full-biodata`, { method: 'POST' })
+        const json = await res.json()
+        if (!res.ok) alert(json.error || 'Gagal mengirim permintaan akses kontak.')
+        else { alert('Permintaan akses kontak (WhatsApp) dikirim. Menunggu persetujuan.') }
+      }
+    } else {
+      if (allow && cand.targetInstagram) {
+        const handle = (cand.targetInstagram || '').replace(/^@/, '')
+        window.open(`https://instagram.com/${handle}`, '_blank')
+      } else {
+        const res = await fetch(`/api/matches/${cand.id}/request-full-biodata`, { method: 'POST' })
+        const json = await res.json()
+        if (!res.ok) alert(json.error || 'Gagal mengirim permintaan akses kontak.')
+        else { alert('Permintaan akses kontak (Instagram) dikirim. Menunggu persetujuan.') }
+      }
+    }
+    try { document.cookie = `setaruf_tutorial_seen=1; path=/; max-age=${60 * 60 * 24 * 365}` } catch {}
+    setShowTutorial(false)
+    router.push(`/dashboard/messages`)
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -379,6 +492,13 @@ export default function DashboardPage() {
 
           {/* Right: Actions */}
           <div className="flex items-center gap-2">
+            <button
+              className="relative p-2 text-gray-600 rounded-full hover:bg-gray-100 transition-colors"
+              title="Tutorial"
+              onClick={() => setShowTutorial(true)}
+            >
+              <HelpCircle className="w-5 h-5" />
+            </button>
              <DropdownMenu onOpenChange={(open) => open && loadNotifications()}>
               <DropdownMenuTrigger asChild>
                 <button className="relative p-2 text-gray-600 rounded-full hover:bg-gray-100 transition-colors">
@@ -478,6 +598,22 @@ export default function DashboardPage() {
                       <RotateCcw className="w-3 h-3 mr-1"/>Psikotes
                     </Button>
                   </Link>
+                </div>
+                <div className="mt-3 flex items-center gap-2">
+                  <span className="text-xs text-gray-500">Kode Unik</span>
+                  <Badge variant="outline" className="font-mono">{data?.user.uniqueCode || '-'}</Badge>
+                  <button
+                    type="button"
+                    className="inline-flex items-center justify-center h-8 px-2 rounded-md border border-rose-200 text-rose-600 bg-white hover:bg-rose-50 text-xs"
+                    onClick={() => {
+                      if (data?.user.uniqueCode) {
+                        navigator.clipboard.writeText(data.user.uniqueCode)
+                        toast({ title: 'Tersalin', description: 'Kode unik disalin ke clipboard' })
+                      }
+                    }}
+                  >
+                    Copy
+                  </button>
                 </div>
               </div>
             </CardContent>
@@ -638,11 +774,16 @@ export default function DashboardPage() {
                       <CardContent className="p-0">
                         <div className="p-3 flex items-center gap-3">
                           <Avatar className="w-12 h-12 flex-shrink-0">
-                            {match.targetAvatar ? <AvatarImage src={match.targetAvatar} className="object-cover" /> : null}
-                            <AvatarFallback className="bg-gray-100 text-gray-600 text-xs">{getInitials(match.targetName)}</AvatarFallback>
+                            {canShowPhotoForCard(match) && match.targetAvatar ? <AvatarImage src={match.targetAvatar} className="object-cover" /> : null}
+                            <AvatarFallback className="bg-gray-100 text-gray-600 text-xs">{getFirstLastInitials(match.targetName)}</AvatarFallback>
                           </Avatar>
                           <div className="flex-1 min-w-0">
-                            <h4 className="font-semibold text-sm text-gray-900 truncate">{match.targetName}</h4>
+                            <h4 className="font-semibold text-sm text-gray-900 truncate">{getFirstLastInitials(match.targetName)}</h4>
+                            {match.matchStep === 'mutual_liked' && (
+                              <div className="mt-0.5">
+                                <Badge variant="outline" className="text-rose-600 border-rose-200 bg-rose-50 text-[10px]">Mutual Suka</Badge>
+                              </div>
+                            )}
                             <p className="text-xs text-gray-500 truncate">
                               {match.targetAge && `${match.targetAge} thn`} {match.targetOccupation && `• ${match.targetOccupation}`} {match.targetCity && `• ${match.targetCity}`}
                             </p>
@@ -674,24 +815,74 @@ export default function DashboardPage() {
                               <button
                                 className="p-1 rounded text-green-600 hover:bg-gray-100"
                                 onClick={async () => {
+                                const res = await fetch(`/api/matches/${match.id}/like`, { method: 'POST' })
+                                  const json = await res.json()
+                                  if (!res.ok) alert(json.error || 'Gagal menyukai profil.')
+                                  else {
+                                    setData(prev => {
+                                      if (!prev) return prev
+                                      const updated = (prev.matches || []).map(m => m.id === match.id ? { ...m, matchStatus: 'liked' } : m)
+                                      return { ...prev, matches: updated }
+                                    })
+                                    alert('Sukses menyukai profil.')
+                                  }
+                                }}
+                                title="Suka"
+                              >
+                                <Heart className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                className="p-1 rounded text-red-600 hover:bg-gray-100"
+                                onClick={async () => {
+                                const res = await fetch(`/api/matches/${match.id}/dislike`, { method: 'POST' })
+                                  const json = await res.json()
+                                  if (!res.ok) alert(json.error || 'Gagal menolak profil.')
+                                  else {
+                                    setData(prev => {
+                                      if (!prev) return prev
+                                      const updated = (prev.matches || []).filter(m => m.id !== match.id)
+                                      return { ...prev, matches: updated }
+                                    })
+                                    alert('Profil dihapus permanen dari rekomendasi.')
+                                  }
+                                }}
+                                title="Tidak"
+                              >
+                                <XCircle className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                className="p-1 rounded text-green-600 hover:bg-gray-100"
+                                onClick={async () => {
+                                  const allow = (match.matchStep === 'mutual_liked') || ((match.matchStatus === 'liked') && (match.matchStep === 'profile_viewed'))
+                                  if (allow && match.targetWhatsapp) {
+                                    const num = (match.targetWhatsapp || '').replace(/[^0-9]/g, '')
+                                    window.open(`https://wa.me/${num}`, '_blank')
+                                    return
+                                  }
                                   const res = await fetch(`/api/matches/${match.id}/request-full-biodata`, { method: 'POST' })
                                   const json = await res.json()
                                   if (!res.ok) alert(json.error || 'Gagal mengirim permintaan akses kontak.')
                                   else { alert('Permintaan akses kontak (WhatsApp) dikirim. Menunggu persetujuan.') }
                                 }}
-                                title="Minta izin akses WhatsApp"
+                                title="WhatsApp"
                               >
                                 <Phone className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 className="p-1 rounded text-pink-500 hover:bg-gray-100"
                                 onClick={async () => {
+                                  const allow = (match.matchStep === 'mutual_liked') || ((match.matchStatus === 'liked') && (match.matchStep === 'profile_viewed'))
+                                  if (allow && match.targetInstagram) {
+                                    const handle = (match.targetInstagram || '').replace(/^@/, '')
+                                    window.open(`https://instagram.com/${handle}`, '_blank')
+                                    return
+                                  }
                                   const res = await fetch(`/api/matches/${match.id}/request-full-biodata`, { method: 'POST' })
                                   const json = await res.json()
                                   if (!res.ok) alert(json.error || 'Gagal mengirim permintaan akses kontak.')
                                   else { alert('Permintaan akses kontak (Instagram) dikirim. Menunggu persetujuan.') }
                                 }}
-                                title="Minta izin akses Instagram"
+                                title="Instagram"
                               >
                                 <Instagram className="w-3.5 h-3.5" />
                               </button>
@@ -833,6 +1024,13 @@ export default function DashboardPage() {
                 <Link href="/dashboard/messages" className="flex items-center gap-2 text-gray-600 hover:text-rose-600"><MessageSquare className="w-4 h-4" />Messages</Link>
               </nav>
               <div className="flex items-center gap-4">
+                <button
+                  className="relative p-2 text-gray-600 hover:text-rose-600 transition-colors"
+                  title="Tutorial"
+                  onClick={() => setShowTutorial(true)}
+                >
+                  <HelpCircle className="w-5 h-5" />
+                </button>
                 <DropdownMenu onOpenChange={(open) => open && loadNotifications()}>
                   <DropdownMenuTrigger asChild>
                     <button className="relative p-2 text-gray-600 hover:text-rose-600 transition-colors">
@@ -899,7 +1097,24 @@ export default function DashboardPage() {
                   <CardContent className="pt-4 space-y-3">
                     <div className="flex justify-between text-sm"><span className="text-gray-500">Usia</span><span className="font-medium">{data?.profile?.age || '-'} tahun</span></div>
                     <div className="flex justify-between text-sm"><span className="text-gray-500">Domisili</span><span className="font-medium">{data?.profile?.city || '-'}</span></div>
-                    <div className="flex justify-between text-sm items-center"><span className="text-gray-500">Kode Unik</span><Badge variant="outline" className="font-mono">{data?.user.uniqueCode || '-'}</Badge></div>
+                    <div className="flex justify-between text-sm items-center">
+                      <span className="text-gray-500">Kode Unik</span>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="font-mono">{data?.user.uniqueCode || '-'}</Badge>
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center h-7 px-2 rounded-md border border-white/50 text-white/90 bg-white/20 hover:bg-white/30 text-[11px]"
+                          onClick={() => {
+                            if (data?.user.uniqueCode) {
+                              navigator.clipboard.writeText(data.user.uniqueCode)
+                              toast({ title: 'Tersalin', description: 'Kode unik disalin ke clipboard' })
+                            }
+                          }}
+                        >
+                          Copy
+                        </button>
+                      </div>
+                    </div>
                     <div className="flex gap-2 pt-2">
                       <Button
                         asChild
@@ -969,11 +1184,16 @@ export default function DashboardPage() {
                         <CardContent className="p-4">
                           <div className="flex items-start gap-4">
                             <Avatar className="w-14 h-14 flex-shrink-0">
-                              {match.targetAvatar ? <AvatarImage src={match.targetAvatar} alt={match.targetName} className="object-cover" /> : null}
-                              <AvatarFallback className="bg-gradient-to-br from-rose-500 to-pink-500 text-white">{getInitials(match.targetName)}</AvatarFallback>
+                              {canShowPhotoForCard(match) && match.targetAvatar ? <AvatarImage src={match.targetAvatar} alt={match.targetName} className="object-cover" /> : null}
+                              <AvatarFallback className="bg-gradient-to-br from-rose-500 to-pink-500 text-white">{getFirstLastInitials(match.targetName)}</AvatarFallback>
                             </Avatar>
                             <div className="flex-1 min-w-0">
-                              <h4 className="font-semibold text-gray-900 truncate">{match.targetName}</h4>
+                              <h4 className="font-semibold text-gray-900 truncate">{getFirstLastInitials(match.targetName)}</h4>
+                              {match.matchStep === 'mutual_liked' && (
+                                <div className="mt-0.5">
+                                  <Badge variant="outline" className="text-rose-600 border-rose-200 bg-rose-50 text-[10px]">Mutual Suka</Badge>
+                                </div>
+                              )}
                               <p className="text-sm text-gray-600 truncate">
                                 {(() => {
                                   const parts = [
@@ -1016,9 +1236,55 @@ export default function DashboardPage() {
                             </Button>
                             <button
                               type="button"
-                              className="inline-flex items-center justify-center w-10 h-9 rounded-md border border-rose-200 text-rose-600 bg-white hover:bg-rose-50"
-                              title="Minta izin akses WhatsApp"
+                              className="inline-flex items-center justify-center w-10 h-9 rounded-md text-green-600 bg-white hover:bg-rose-50"
+                              title="Suka"
                               onClick={async () => {
+                                const res = await fetch(`/api/matches/${match.id}/like`, { method: 'POST' })
+                                const json = await res.json()
+                                if (!res.ok) alert(json.error || 'Gagal menyukai profil.')
+                                else {
+                                  setData(prev => {
+                                    if (!prev) return prev
+                                    const updated = (prev.matches || []).map(m => m.id === match.id ? { ...m, matchStatus: 'liked', matchStep: json.step || m.matchStep } : m)
+                                    return { ...prev, matches: updated }
+                                  })
+                                  alert('Sukses menyukai profil.')
+                                }
+                              }}
+                            >
+                              <Heart className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              className="inline-flex items-center justify-center w-10 h-9 rounded-md text-red-600 bg-white hover:bg-rose-50"
+                              title="Tidak"
+                              onClick={async () => {
+                                const res = await fetch(`/api/matches/${match.id}/dislike`, { method: 'POST' })
+                                const json = await res.json()
+                                if (!res.ok) alert(json.error || 'Gagal menolak profil.')
+                                else {
+                                  setData(prev => {
+                                    if (!prev) return prev
+                                    const updated = (prev.matches || []).filter(m => m.id !== match.id)
+                                    return { ...prev, matches: updated }
+                                  })
+                                  alert('Profil dihapus permanen dari rekomendasi.')
+                                }
+                              }}
+                            >
+                              <XCircle className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="button"
+                              className="inline-flex items-center justify-center w-10 h-9 rounded-md border border-rose-200 text-rose-600 bg-white hover:bg-rose-50"
+                              title="WhatsApp"
+                              onClick={async () => {
+                                const allow = (match.matchStep === 'mutual_liked') || ((match.matchStatus === 'liked') && (match.matchStep === 'profile_viewed'))
+                                if (allow && match.targetWhatsapp) {
+                                  const num = (match.targetWhatsapp || '').replace(/[^0-9]/g, '')
+                                  window.open(`https://wa.me/${num}`, '_blank')
+                                  return
+                                }
                                 const res = await fetch(`/api/matches/${match.id}/request-full-biodata`, { method: 'POST' })
                                 const json = await res.json()
                                 if (!res.ok) alert(json.error || 'Gagal mengirim permintaan akses kontak.')
@@ -1030,8 +1296,14 @@ export default function DashboardPage() {
                             <button
                               type="button"
                               className="inline-flex items-center justify-center w-10 h-9 rounded-md border border-rose-200 text-rose-600 bg-white hover:bg-rose-50"
-                              title="Minta izin akses Instagram"
+                              title="Instagram"
                               onClick={async () => {
+                                const allow = (match.matchStep === 'mutual_liked') || ((match.matchStatus === 'liked') && (match.matchStep === 'profile_viewed'))
+                                if (allow && match.targetInstagram) {
+                                  const handle = (match.targetInstagram || '').replace(/^@/, '')
+                                  window.open(`https://instagram.com/${handle}`, '_blank')
+                                  return
+                                }
                                 const res = await fetch(`/api/matches/${match.id}/request-full-biodata`, { method: 'POST' })
                                 const json = await res.json()
                                 if (!res.ok) alert(json.error || 'Gagal mengirim permintaan akses kontak.')
@@ -1070,6 +1342,132 @@ export default function DashboardPage() {
             </aside>
           </div>
         </div>
+      </div>
+
+      {/* Tutorial Wizard - Desktop */}
+      <div className="hidden md:block">
+        <Dialog open={showTutorial} onOpenChange={setShowTutorial}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Tutorial Setaruf</DialogTitle>
+              <DialogDescription>Cara penggunaan website dengan konsep QCRAD</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <Badge variant="outline" className="text-rose-600 border-rose-200 bg-rose-50 text-[10px]">{['Prasyarat','Rekomendasi','Lihat Profil','Suka/Tidak','Kontak'][tutorialStep]}</Badge>
+                <div className="flex gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setTutorialStep(Math.max(0, tutorialStep - 1))}>Kembali</Button>
+                  <Button size="sm" onClick={() => { const n = tutorialStep + 1; if (n > 4) { try { document.cookie = `setaruf_tutorial_seen=1; path=/; max-age=${60 * 60 * 24 * 365}` } catch {}; setShowTutorial(false) } else { setTutorialStep(n) } }}>Lanjut</Button>
+                </div>
+              </div>
+              {tutorialStep === 0 && (
+                <div className="space-y-3">
+                  <div className="p-3 rounded-md border"><p className="text-sm font-semibold mb-1">Question</p><p className="text-sm text-gray-600">Mau mulai dari mana?</p></div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button variant="outline" onClick={() => handleTutorialChoice('/dashboard/profile')}><User className="w-4 h-4 mr-2" /> Lengkapi Profil</Button>
+                    <Button variant="outline" onClick={() => handleTutorialChoice('/dashboard/psychotest')}><FileText className="w-4 h-4 mr-2" /> Ikuti Psikotes</Button>
+                    <Button variant="outline" onClick={() => handleTutorialChoice('/dashboard')}><Heart className="w-4 h-4 mr-2" /> Lihat Rekomendasi</Button>
+                    <Button variant="outline" onClick={() => handleTutorialChoice('/dashboard/messages')}><MessageSquare className="w-4 h-4 mr-2" /> Buka Chat</Button>
+                  </div>
+                </div>
+              )}
+              {tutorialStep === 1 && (
+                <div className="space-y-3"><p className="text-sm">Buka halaman Rekomendasi untuk melihat kandidat.</p><Button variant="outline" onClick={() => handleTutorialChoice('/dashboard')}><Heart className="w-4 h-4 mr-2" /> Buka Rekomendasi</Button></div>
+              )}
+              {tutorialStep === 2 && (
+                <div className="space-y-3">
+                  <p className="text-sm">Klik tombol Lihat Profil pada kartu. Sistem mengirim permintaan, tunggu persetujuan. Setelah disetujui, tahap berubah ke profile_viewed.</p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => tutorialRequestTopProfile()}><User className="w-4 h-4 mr-2" /> Kirim Permintaan (Kandidat Teratas)</Button>
+                    <Button variant="ghost" onClick={() => handleTutorialChoice('/dashboard')}><Home className="w-4 h-4 mr-2" /> Ke Dashboard</Button>
+                  </div>
+                </div>
+              )}
+              {tutorialStep === 3 && (
+                <div className="space-y-3">
+                  <p className="text-sm">Gunakan tombol Suka/Tidak. Jika kedua pihak menekan Suka, tahap menjadi mutual_liked dan foto akan tampil. Menekan Tidak menghapus rekomendasi.</p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => tutorialLikeTopCandidate()}><Heart className="w-4 h-4 mr-2" /> Suka Kandidat Teratas</Button>
+                    <Button variant="destructive" onClick={() => tutorialDislikeTopCandidate()}><XCircle className="w-4 h-4 mr-2" /> Tidak Kandidat Teratas</Button>
+                    <Button variant="ghost" onClick={() => handleTutorialChoice('/dashboard')}><Home className="w-4 h-4 mr-2" /> Ke Dashboard</Button>
+                  </div>
+                </div>
+              )}
+              {tutorialStep === 4 && (
+                <div className="space-y-3">
+                  <p className="text-sm">Akses WA/IG aktif saat mutual_liked, atau saat Suka dan profile_viewed. Klik ikon untuk membuka.</p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => tutorialOpenContactTopCandidate('whatsapp')}><Phone className="w-4 h-4 mr-2" /> Buka WhatsApp</Button>
+                    <Button variant="outline" onClick={() => tutorialOpenContactTopCandidate('instagram')}><Instagram className="w-4 h-4 mr-2" /> Buka Instagram</Button>
+                    <Button variant="ghost" onClick={() => handleTutorialChoice('/dashboard/messages')}><MessageSquare className="w-4 h-4 mr-2" /> Ke Chat</Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      </div>
+
+      {/* Tutorial Wizard - Mobile */}
+      <div className="md:hidden">
+        <Drawer open={showTutorial} onOpenChange={setShowTutorial}>
+          <DrawerContent>
+            <div className="p-4 space-y-3">
+              <h3 className="font-semibold">Tutorial Setaruf</h3>
+              <p className="text-xs text-gray-600">Cara penggunaan website dengan konsep QCRAD</p>
+              <div className="flex items-center justify-between">
+                <Badge variant="outline" className="text-rose-600 border-rose-200 bg-rose-50 text-[10px]">{['Prasyarat','Rekomendasi','Lihat Profil','Suka/Tidak','Kontak'][tutorialStep]}</Badge>
+                <div className="flex gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => setTutorialStep(Math.max(0, tutorialStep - 1))}>Kembali</Button>
+                  <Button size="sm" onClick={() => { const n = tutorialStep + 1; if (n > 4) { try { document.cookie = `setaruf_tutorial_seen=1; path=/; max-age=${60 * 60 * 24 * 365}` } catch {}; setShowTutorial(false) } else { setTutorialStep(n) } }}>Lanjut</Button>
+                </div>
+              </div>
+              {tutorialStep === 0 && (
+                <>
+                  <div className="p-3 rounded-md border"><p className="text-sm font-semibold mb-1">Question</p><p className="text-sm text-gray-600">Mau mulai dari mana?</p></div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button variant="outline" size="sm" onClick={() => handleTutorialChoice('/dashboard/profile')}><User className="w-3.5 h-3.5 mr-2" /> Profil</Button>
+                    <Button variant="outline" size="sm" onClick={() => handleTutorialChoice('/dashboard/psychotest')}><FileText className="w-3.5 h-3.5 mr-2" /> Psikotes</Button>
+                    <Button variant="outline" size="sm" onClick={() => handleTutorialChoice('/dashboard')}><Heart className="w-3.5 h-3.5 mr-2" /> Rekomendasi</Button>
+                    <Button variant="outline" size="sm" onClick={() => handleTutorialChoice('/dashboard/messages')}><MessageSquare className="w-3.5 h-3.5 mr-2" /> Chat</Button>
+                  </div>
+                </>
+              )}
+              {tutorialStep === 1 && (
+                <div className="space-y-2"><p className="text-sm">Buka halaman Rekomendasi untuk melihat kandidat.</p><Button variant="outline" size="sm" onClick={() => handleTutorialChoice('/dashboard')}><Heart className="w-3.5 h-3.5 mr-2" /> Buka Rekomendasi</Button></div>
+              )}
+              {tutorialStep === 2 && (
+                <div className="space-y-2">
+                  <p className="text-sm">Klik Lihat Profil pada kartu. Sistem mengirim permintaan, tunggu persetujuan. Setelah disetujui, tahap menjadi profile_viewed.</p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => tutorialRequestTopProfile()}><User className="w-3.5 h-3.5 mr-2" /> Kirim Permintaan (Teratas)</Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleTutorialChoice('/dashboard')}><Home className="w-3.5 h-3.5 mr-2" /> Ke Dashboard</Button>
+                  </div>
+                </div>
+              )}
+              {tutorialStep === 3 && (
+                <div className="space-y-2">
+                  <p className="text-sm">Tekan Suka/Tidak. Mutual Suka menampilkan foto dan badge. Tidak akan menyembunyikan rekomendasi.</p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => tutorialLikeTopCandidate()}><Heart className="w-3.5 h-3.5 mr-2" /> Suka Teratas</Button>
+                    <Button variant="destructive" size="sm" onClick={() => tutorialDislikeTopCandidate()}><XCircle className="w-3.5 h-3.5 mr-2" /> Tidak Teratas</Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleTutorialChoice('/dashboard')}><Home className="w-3.5 h-3.5 mr-2" /> Ke Dashboard</Button>
+                  </div>
+                </div>
+              )}
+              {tutorialStep === 4 && (
+                <div className="space-y-2">
+                  <p className="text-sm">Kontak WA/IG aktif saat mutual_liked, atau Suka dan profile_viewed. Klik ikon untuk membuka.</p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => tutorialOpenContactTopCandidate('whatsapp')}><Phone className="w-3.5 h-3.5 mr-2" /> WhatsApp</Button>
+                    <Button variant="outline" size="sm" onClick={() => tutorialOpenContactTopCandidate('instagram')}><Instagram className="w-3.5 h-3.5 mr-2" /> Instagram</Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleTutorialChoice('/dashboard/messages')}><MessageSquare className="w-3.5 h-3.5 mr-2" /> Ke Chat</Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </DrawerContent>
+        </Drawer>
       </div>
 
       {/* Global Styles for hiding scrollbar */}

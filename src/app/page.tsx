@@ -1,396 +1,184 @@
 'use client'
 
-import { useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { 
-  AlertCircle, 
   Heart, 
   Cpu, 
-  Moon, 
   Target, 
   BrainCircuit, 
   GitCommit, 
   Gift 
 } from 'lucide-react'
-import { MathQuizWrapper } from '@/components/math-quiz-wrapper'
 import { signIn } from 'next-auth/react'
 
 export default function AuthPage() {
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState('')
-
-  // Refs untuk menyimpan fungsi eksekusi quiz agar bisa diakses dari handle submit
-  const loginQuizRef = useRef<(() => Promise<{ a: number; b: number; op: '+' | '-'; answer: number }>) | null>(null)
-  const registerQuizRef = useRef<(() => Promise<{ a: number; b: number; op: '+' | '-'; answer: number }>) | null>(null)
-
-  // Login form state
-  const [loginEmail, setLoginEmail] = useState('')
-  const [loginPassword, setLoginPassword] = useState('')
-
-  // Register form state
-  const [registerEmail, setRegisterEmail] = useState('')
-  const [registerDateOfBirth, setRegisterDateOfBirth] = useState('') // State baru Tanggal Lahir
-  const [registerPassword, setRegisterPassword] = useState('')
-  const [registerConfirmPassword, setRegisterConfirmPassword] = useState('')
-
-  // Data Fitur Baru
+  // Data Fitur (Desktop Only) - Updated Text
   const uniqueFeatures = [
-    { text: "AI based compatibility", icon: Cpu },
-    { text: "Exclusive halal system", icon: Moon },
-    { text: "Tidak seperti dating app", icon: AlertCircle }, // Menggunakan icon yang tersedia atau ganti jika perlu
-    { text: "Serious marriage funnel", icon: Target },
-    { text: "Psychological deep matching", icon: BrainCircuit },
-    { text: "Structured taaruf flow", icon: GitCommit }
+    { text: "Kecocokan berbasis Kecerdasan Buatan (AI)", icon: Cpu },
+    { text: "Bukan aplikasi kencan", icon: Gift },
+    { text: "Alur terstruktur menuju pernikahan serius", icon: Target },
+    { text: "Pencocokan mendalam berbasis psikologis", icon: BrainCircuit },
+    { text: "Alur ta’aruf yang terstruktur dan terarah", icon: GitCommit }
   ]
 
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-    setIsLoading(true)
-
-    try {
-      // Menggunakan ref untuk mengambil fungsi quiz
-      if (!loginQuizRef.current) {
-        throw new Error('Komponen verifikasi belum siap. Silakan refresh halaman.')
-      }
-
-      const quiz = await loginQuizRef.current()
-      if (!quiz) {
-        throw new Error('Verifikasi keamanan gagal. Silakan coba lagi.')
-      }
-
-      const result = await signIn('credentials', {
-        email: loginEmail,
-        password: loginPassword,
-        quiz: JSON.stringify(quiz),
-        redirect: false,
-      })
-      if (!result || result.error) {
-        throw new Error(result?.error || 'Login gagal')
-      }
-      window.location.href = '/dashboard'
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError('')
-
-    // Validasi
-    if (!registerEmail || !registerPassword || !registerDateOfBirth) {
-      setError('Semua field wajib diisi')
-      return
-    }
-
-    if (registerPassword !== registerConfirmPassword) {
-      setError('Password tidak cocok')
-      return
-    }
-
-    const pwd = registerPassword
-    const strongPwd =
-      pwd.length >= 8 &&
-      /[A-Z]/.test(pwd) &&
-      /[a-z]/.test(pwd) &&
-      /[0-9]/.test(pwd) &&
-      /[^A-Za-z0-9]/.test(pwd)
-    if (!strongPwd) {
-      setError('Password wajib minimal 8 karakter dan kombinasi huruf besar, kecil, angka, dan simbol')
-      return
-    }
-
-    setIsLoading(true)
-
-    try {
-      if (!registerQuizRef.current) {
-        throw new Error('Komponen verifikasi belum siap. Silakan refresh halaman.')
-      }
-
-      const quiz = await registerQuizRef.current()
-      if (!quiz) {
-        throw new Error('Verifikasi keamanan gagal. Silakan coba lagi.')
-      }
-
-      const response = await fetch('/api/auth/register', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: registerEmail,
-          password: registerPassword,
-          dateOfBirth: registerDateOfBirth, // Mengirim Tanggal Lahir
-          quiz
-        }),
-      })
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Registrasi gagal')
-      }
-
-      const result = await signIn('credentials', {
-        email: registerEmail,
-        password: registerPassword,
-        quiz: JSON.stringify(quiz),
-        redirect: false,
-      })
-      if (!result || result.error) {
-        throw new Error(result?.error || 'Login setelah registrasi gagal')
-      }
-      window.location.href = data.redirectTo || '/dashboard'
-    } catch (err: any) {
-      setError(err.message)
-    } finally {
-      setIsLoading(false)
-    }
-  }
-
   return (
-    <div className="min-h-screen bg-gradient-to-br from-rose-50 via-pink-50 to-purple-50 relative overflow-hidden p-4 flex items-center justify-center">
-      {/* Background Decoration Blobs */}
-      <div className="absolute top-0 left-0 w-96 h-96 bg-rose-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob hidden lg:block"></div>
-      <div className="absolute top-0 right-0 w-96 h-96 bg-purple-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000 hidden lg:block"></div>
-      <div className="absolute -bottom-8 left-20 w-96 h-96 bg-pink-200 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-4000 hidden lg:block"></div>
+    <>
+      <style>{`
+        @keyframes fade-in-up {
+          0% { opacity: 0; transform: translateY(10px); }
+          100% { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-up { animation: fade-in-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        .delay-100 { animation-delay: 0.1s; }
+        .delay-200 { animation-delay: 0.2s; }
+        
+        .text-luxury-emboss {
+          background: linear-gradient(135deg, #831843 0%, #be185d 50%, #831843 100%);
+          -webkit-background-clip: text;
+          -webkit-text-fill-color: transparent;
+          filter: drop-shadow(0px 1px 1px rgba(255, 255, 255, 0.5));
+        }
+      `}</style>
 
-      <div className="container mx-auto max-w-6xl z-10">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-16 items-center">
+      <div className="flex flex-col lg:flex-row min-h-[100dvh] w-full bg-white relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-rose-50 via-white to-purple-50 -z-10"></div>
+
+        {/* --- LEFT SIDE: BRANDING (Desktop Only) --- */}
+        <div className="hidden lg:flex w-1/2 bg-gradient-to-br from-rose-100 to-pink-100 items-center justify-center p-12 relative overflow-hidden">
           
-          {/* --- LEFT SIDE: BRANDING & ADVERTISING (Desktop Only) --- */}
-          <div className="hidden lg:flex flex-col justify-center space-y-8 animate-slide-up">
-            <div className="space-y-4">
-              <div className="flex items-center space-x-3">
-                <div className="bg-gradient-to-br from-rose-500 to-purple-600 p-2.5 rounded-xl shadow-lg shadow-rose-500/20">
-                  <Heart className="w-6 h-6 text-white fill-white/20" />
+          {/* Decorative Background Pattern: Hearts & Rings */}
+          <div className="absolute inset-0 pointer-events-none overflow-hidden">
+            <Heart className="absolute top-[10%] left-[15%] text-rose-300/20 w-12 h-12 animate-pulse" />
+            <Heart className="absolute bottom-[20%] right-[10%] text-purple-300/20 w-16 h-16" fill="currentColor" />
+            <Heart className="absolute top-[40%] left-[80%] text-rose-400/10 w-8 h-8" />
+            
+            <div className="absolute top-[15%] right-[25%] w-16 h-16 rounded-full border-2 border-rose-300/20 rotate-12"></div>
+            <div className="absolute bottom-[15%] left-[20%] w-24 h-24 rounded-full border border-purple-300/10 -rotate-6"></div>
+            <div className="absolute top-[60%] left-[10%] w-8 h-8 rounded-full border border-rose-200/30 rotate-45"></div>
+            
+            <div className="absolute top-0 left-0 w-[500px] h-[500px] bg-rose-200 rounded-full mix-blend-multiply filter blur-[100px] opacity-40"></div>
+            <div className="absolute bottom-0 right-0 w-[400px] h-[400px] bg-purple-200 rounded-full mix-blend-multiply filter blur-[100px] opacity-40"></div>
+          </div>
+
+          <div className="relative z-10 max-w-lg w-full space-y-8 animate-fade-up">
+            <div className="space-y-6">
+              <div className="inline-flex items-center space-x-3">
+                <div className="bg-white p-3 rounded-2xl shadow-xl shadow-rose-500/20">
+                  <Heart className="w-8 h-8 text-rose-600 fill-rose-100" />
                 </div>
-                <h1 className="text-4xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-gray-900 to-gray-600 tracking-tight">
+                <h1 className="text-5xl font-extrabold tracking-tight text-gray-900 font-serif">
                   Setaruf
                 </h1>
               </div>
-              <p className="text-lg text-gray-600 font-medium leading-relaxed pl-1">
-                "Platform Ta'aruf untuk Pernikahan Serius"
-              </p>
-            </div>
-
-            {/* Advertising Block */}
-            <div className="bg-gradient-to-br from-rose-600 to-purple-700 rounded-2xl p-6 text-white shadow-xl shadow-rose-500/30 relative overflow-hidden group hover:shadow-rose-500/40 transition-all duration-300">
-              <div className="absolute -right-4 -top-4 w-32 h-32 bg-white/10 rounded-full blur-2xl group-hover:bg-white/20 transition-colors"></div>
-              <div className="relative z-10">
-                <div className="flex items-start gap-3 mb-2">
-                  <div className="bg-white/20 p-2 rounded-lg backdrop-blur-sm mt-0.5">
-                    <Gift className="w-5 h-5 text-yellow-300" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-lg leading-tight mb-1">
-                      Awali Setaruf dengan <span className="text-yellow-300 drop-shadow-sm">1 Bulan Gratis</span>
-                    </h3>
-                    <div className="h-0.5 w-12 bg-white/30 rounded-full mb-2"></div>
-                  </div>
-                </div>
-                <p className="text-sm font-medium text-white/90 pl-14">
-                  Kemudian cukup <span className="font-bold text-white border-b border-yellow-300/50">Rp50.000/bulan</span> untuk mendampingi proses menuju Pernikahan.
-                </p>
+              
+              {/* --- DESKTOP TAG: Dark Luxury Text --- */}
+              <div className="pl-1">
+                <h2 className="font-serif text-2xl lg:text-3xl italic leading-tight text-luxury-emboss">
+                  The Hybrid Ta’aruf Platform <br/> for Commitment & Marriage
+                </h2>
               </div>
             </div>
 
-            {/* Features Grid */}
-            <div className="grid grid-cols-2 gap-3 w-full">
-              {uniqueFeatures.map((feat, idx) => (
-                <div key={idx} className="flex items-center space-x-3 bg-white/70 backdrop-blur-sm border border-white/60 p-3 rounded-xl shadow-sm hover:shadow-md transition-shadow group">
-                  <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center group-hover:bg-rose-500 group-hover:text-white transition-colors">
-                    <feat.icon className="w-4 h-4" />
-                  </div>
-                  <span className="text-sm font-semibold text-gray-700 leading-tight">
-                    {feat.text}
-                  </span>
+            <div className="bg-white/60 backdrop-blur-xl border border-white/60 p-6 rounded-3xl shadow-lg hover:shadow-xl transition-all duration-300">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="bg-rose-100 p-3 rounded-full text-rose-600">
+                  <Gift className="w-6 h-6" />
                 </div>
-              ))}
+                <div>
+                  <h3 className="font-bold text-gray-900 font-serif">Exclusive Access</h3>
+                  <p className="text-sm text-gray-500">Mulai dengan 1 Bulan Gratis</p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                {uniqueFeatures.map((feat, idx) => (
+                  <div key={idx} className="flex items-center gap-3 text-gray-700">
+                    <div className="w-1.5 h-1.5 rounded-full bg-rose-500"></div>
+                    <span className="text-sm font-medium">{feat.text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* --- RIGHT SIDE: AUTH FORM (Mobile & Desktop) --- */}
+        <div className="flex-1 flex flex-col justify-center items-center p-6 lg:p-12 w-full relative bg-white/30 backdrop-blur-sm">
+          
+          {/* Mobile Logo & Header */}
+          <div className="lg:hidden w-full max-w-sm mx-auto mb-8 text-center animate-fade-up space-y-6">
+            
+            <div className="inline-flex items-center justify-center space-x-2 mb-2">
+              <div className="bg-white p-2 rounded-xl shadow-md border border-rose-50">
+                <Heart className="w-6 h-6 text-rose-600 fill-rose-100" />
+              </div>
+              <h1 className="text-3xl font-bold text-gray-900 tracking-tight font-serif">Setaruf</h1>
+            </div>
+
+            {/* --- MOBILE TAG --- */}
+            <div className="relative py-2">
+              <div className="absolute inset-0 flex items-center justify-center opacity-20">
+                <div className="w-full h-px bg-neutral-800"></div>
+              </div>
+              <span className="relative bg-white/90 px-4 font-serif italic tracking-[0.15em] text-rose-900 text-[11px] uppercase leading-relaxed">
+                A Modern Hybrid Ta’aruf Platform
+              </span>
+            </div>
+
+            <div className="inline-flex items-center gap-2 px-4 py-2 bg-rose-50 border border-rose-100 rounded-full text-xs font-semibold text-rose-700 shadow-sm animate-fade-up delay-100">
+              <Gift className="w-3.5 h-3.5" />
+              <span>Coba 1 Bulan Gratis</span>
             </div>
           </div>
 
-          {/* --- RIGHT SIDE: FORM CARD --- */}
-          <div className="w-full max-w-md mx-auto lg:ml-auto">
-            <Card className="w-full shadow-xl border-0 bg-white/90 backdrop-blur-md relative overflow-hidden">
-              {/* Decorative Circle Background */}
-              <div className="absolute top-0 right-0 p-6 opacity-5 pointer-events-none">
-                <Heart className="w-32 h-32 text-rose-600 fill-current" />
-              </div>
-
-              <CardHeader className="space-y-1 relative z-10 text-center">
-                {/* Mobile Logo */}
-                <div className="lg:hidden flex justify-center mb-4">
-                  <div className="bg-gradient-to-r from-rose-500 to-pink-500 p-2 rounded-xl shadow-md">
-                    <Heart className="w-6 h-6 text-white fill-white/20" />
-                  </div>
+          {/* Form Container Card */}
+          <div className="w-full max-w-sm animate-fade-up delay-200">
+            <Card className="border-0 shadow-2xl shadow-gray-200/50 bg-white/90 backdrop-blur-xl lg:rounded-3xl overflow-hidden">
+              <CardContent className="p-6 lg:p-8 space-y-6">
+                
+                <div className="space-y-2 text-center">
+                  <h3 className="text-lg font-semibold text-gray-800">Masuk ke Akun</h3>
+                  <p className="text-sm text-gray-500">
+                    Gunakan akun Google yang terhubung dengan identitas asli Anda.
+                  </p>
                 </div>
 
-                
-                {/* Mobile Only Promo Text */}
-                <div className="lg:hidden mt-3 px-3 py-1.5 bg-rose-50 border border-rose-100 rounded-lg flex items-center justify-center gap-2">
-                  <Gift className="w-4 h-4 text-rose-500" />
-                  <span className="text-xs font-bold text-rose-600">Coba 1 Bulan Gratis</span>
+                <Button
+                  type="button"
+                  className="w-full h-12 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 hover:border-gray-400 hover:shadow-md transition-all duration-200 font-medium text-base flex items-center justify-center gap-3 rounded-xl group"
+                  onClick={() => {
+                    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
+                    const url = `${origin}/dashboard`
+                    signIn('google', { callbackUrl: url, redirect: true })
+                  }}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" className="w-5 h-5 group-hover:scale-110 transition-transform duration-200">
+                    <path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12 c0-6.627,5.373-12,12-12c3.059,0,5.84,1.162,7.951,3.049l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24 s8.955,20,20,20s20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/>
+                    <path fill="#FF3D00" d="M6.306,14.691l6.571,4.815C14.264,16.16,18.801,14,24,14c3.059,0,5.84,1.162,7.951,3.049l5.657-5.657 C34.046,6.053,29.268,4,24,4C15.317,4,7.884,8.771,6.306,14.691z"/>
+                    <path fill="#4CAF50" d="M24,44c5.18,0,9.9-1.986,13.453-5.219l-6.207-5.238C29.091,35.091,26.215,36,24,36 c-5.202,0-9.619-3.317-11.283-7.946l-6.548,5.038C8.708,39.225,15.782,44,24,44z"/>
+                    <path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.793,2.239-2.231,4.162-4.091,5.543 c0.001-0.001,0.002-0.001,0.003-0.002l6.207,5.238C36.917,39.739,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/>
+                  </svg>
+                  Lanjutkan dengan Google
+                </Button>
+
+                <div className="pt-2 text-center">
+                  <p className="text-xs text-gray-400">
+                    Terproteksi oleh reCAPTCHA Enterprise
+                  </p>
                 </div>
-              </CardHeader>
 
-              <CardContent className="relative z-10">
-                <p className="text-center text-sm font-semibold text-gray-700 mb-3">
-                  Metode Ta'aruf online untuk semua Kalangan & agama
-                </p>
-                <Tabs defaultValue="login" className="w-full">
-                  <TabsList className="grid w-full grid-cols-2 bg-gray-100/50 border border-gray-200/50">
-                    <TabsTrigger value="login">Login</TabsTrigger>
-                    <TabsTrigger value="register">Daftar</TabsTrigger>
-                  </TabsList>
-                  
-                  <TabsContent value="login">
-                    <form onSubmit={handleLogin} className="space-y-4 mt-6">
-                      <div className="space-y-2">
-                        <Label htmlFor="login-email">Email</Label>
-                        <Input
-                          id="login-email"
-                          type="email"
-                          placeholder="nama@email.com"
-                          value={loginEmail}
-                          onChange={(e) => setLoginEmail(e.target.value)}
-                          required
-                          disabled={isLoading}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <Label htmlFor="login-password">Password</Label>
-                          <a href="#" className="text-xs font-medium text-rose-600 hover:text-rose-500 hover:underline">Lupa password?</a>
-                        </div>
-                        <Input
-                          id="login-password"
-                          type="password"
-                          placeholder="••••••••"
-                          value={loginPassword}
-                          onChange={(e) => setLoginPassword(e.target.value)}
-                          required
-                          disabled={isLoading}
-                        />
-                      </div>
-
-                      {/* Verifikasi Dipindahkan ke sini */}
-                      <MathQuizWrapper op="+">
-                        {(executeRecaptcha) => {
-                          loginQuizRef.current = executeRecaptcha
-                          return (
-                            <Button
-                              type="submit"
-                              className="w-full h-11 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white shadow-lg shadow-rose-500/25 transition-all transform hover:scale-[1.01] active:scale-[0.98]"
-                              disabled={isLoading}
-                            >
-                              {isLoading ? 'Memproses...' : 'Masuk'}
-                            </Button>
-                          )
-                        }}
-                      </MathQuizWrapper>
-                    </form>
-                  </TabsContent>
-
-                  <TabsContent value="register">
-                    <form onSubmit={handleRegister} className="space-y-4 mt-6">
-                      <div className="space-y-2">
-                        <Label htmlFor="register-email">Email</Label>
-                        <Input
-                          id="register-email"
-                          type="email"
-                          placeholder="nama@email.com"
-                          value={registerEmail}
-                          onChange={(e) => setRegisterEmail(e.target.value)}
-                          required
-                          disabled={isLoading}
-                        />
-                      </div>
-
-                      {/* Field Tanggal Lahir Baru */}
-                      <div className="space-y-2">
-                        <Label htmlFor="register-dob">Tanggal Lahir</Label>
-                        <Input
-                          id="register-dob"
-                          type="date"
-                          value={registerDateOfBirth}
-                          onChange={(e) => setRegisterDateOfBirth(e.target.value)}
-                          required
-                          disabled={isLoading}
-                          max={new Date().toISOString().split("T")[0]} // Mencegah tanggal masa depan
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="register-password">Password</Label>
-                        <Input
-                          id="register-password"
-                          type="password"
-                          placeholder="•••••••• (Minimal 8 karakter + simbol)"
-                          value={registerPassword}
-                          onChange={(e) => setRegisterPassword(e.target.value)}
-                          required
-                          disabled={isLoading}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="register-confirm-password">Konfirmasi Password</Label>
-                        <Input
-                          id="register-confirm-password"
-                          type="password"
-                          placeholder="••••••••"
-                          value={registerConfirmPassword}
-                          onChange={(e) => setRegisterConfirmPassword(e.target.value)}
-                          required
-                          disabled={isLoading}
-                        />
-                      </div>
-
-                      {/* Verifikasi Dipindahkan ke sini */}
-                      <MathQuizWrapper op="+">
-                        {(executeRecaptcha) => {
-                          registerQuizRef.current = executeRecaptcha
-                          return (
-                            <Button
-                              type="submit"
-                              className="w-full h-11 mt-2 bg-gradient-to-r from-rose-500 to-pink-600 hover:from-rose-600 hover:to-pink-700 text-white shadow-lg shadow-rose-500/25 transition-all transform hover:scale-[1.01] active:scale-[0.98]"
-                              disabled={isLoading}
-                            >
-                              {isLoading ? 'Memproses...' : 'Daftar Sekarang'}
-                            </Button>
-                          )
-                        }}
-                      </MathQuizWrapper>
-                    </form>
-                  </TabsContent>
-                </Tabs>
-                {error && (
-                  <Alert variant="destructive" className="mt-4">
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertDescription>{error}</AlertDescription>
-                  </Alert>
-                )}
-                
-                {/* Bagian Tombol Google DIHAPUS */}
               </CardContent>
-              
-              <CardFooter className="flex justify-center relative z-10">
-                <p className="text-[11px] text-gray-500 text-center leading-tight">
-                  Dengan mendaftar, Anda menyetujui <br/>
-                  <a href="/syarat-ketentuan" className="text-gray-700 underline cursor-pointer hover:text-rose-500 font-medium">Syarat & Ketentuan</a> serta <a href="/kebijakan-privasi" className="text-gray-700 underline cursor-pointer hover:text-rose-500 font-medium">Kebijakan Privasi</a> kami
-                </p>
-              </CardFooter>
             </Card>
 
+            <div className="mt-8 text-center animate-fade-up delay-300">
+              <p className="text-[11px] text-gray-500 leading-relaxed px-4">
+                Dengan melanjutkan, Anda menyetujui <br className="hidden sm:block" />
+                <a href="/syarat-ketentuan" className="text-gray-700 font-semibold hover:text-rose-600 transition-colors">Syarat & Ketentuan</a> dan <a href="/kebijakan-privasi" className="text-gray-700 font-semibold hover:text-rose-600 transition-colors">Kebijakan Privasi</a> kami.
+              </p>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </>
   )
 }

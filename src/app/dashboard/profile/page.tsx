@@ -93,6 +93,11 @@ export default function ProfilePage() {
   const [kabkotaList, setKabkotaList] = useState<string[]>([])
   const [isKabKotaLoading, setIsKabKotaLoading] = useState(false)
   const [isKabKotaLoaded, setIsKabKotaLoaded] = useState(false)
+  const [countriesList, setCountriesList] = useState<string[]>([])
+  const [isCountriesLoading, setIsCountriesLoading] = useState(false)
+  const [isCountriesLoaded, setIsCountriesLoaded] = useState(false)
+  const autoSaveTimer = useRef<NodeJS.Timeout | null>(null)
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'offline'>('idle')
   
   const computedAge = (() => {
     if (!formData.dateOfBirth) return ''
@@ -144,6 +149,21 @@ export default function ProfilePage() {
     }
   }
 
+  const loadCountriesList = async () => {
+    if (isCountriesLoaded || isCountriesLoading) return
+    setIsCountriesLoading(true)
+    try {
+      const res = await fetch('https://restcountries.com/v3.1/all')
+      const data = await res.json()
+      const names = Array.isArray(data) ? data.map((c: any) => c?.name?.common).filter(Boolean) : []
+      const uniq = Array.from(new Set(names)).sort()
+      setCountriesList(uniq)
+      setIsCountriesLoaded(true)
+    } catch { } finally {
+      setIsCountriesLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (videoRef.current && cameraStream) {
       videoRef.current.srcObject = cameraStream
@@ -189,11 +209,11 @@ export default function ProfilePage() {
   }
 
   const validateForm = (): boolean => {
-    const requiredFields = ['fullName', 'gender', 'dateOfBirth', 'religion', 'nationality', 'city']
+    const requiredFields = ['fullName', 'gender', 'dateOfBirth', 'placeOfBirth', 'religion', 'nationality', 'city', 'province', 'country', 'maritalStatus']
     const missingFields = requiredFields.filter(field => !formData[field])
     
     if (missingFields.length > 0) {
-      setError('Harap lengkapi informasi dasar (Nama, Jenis Kelamin, Tanggal Lahir, Agama)')
+      setError(`Harap lengkapi: ${missingFields.join(', ')}`)
       return false
     }
     if (formData.phone && !/^\+?\d{8,15}$/.test(String(formData.phone))) {
@@ -210,6 +230,103 @@ export default function ProfilePage() {
     }
     return true
   }
+
+  const buildPayload = () => {
+    const payload: any = {
+      photoUrl: formData.photoUrl,
+      fullName: formData.fullName,
+      gender: formData.gender,
+      dateOfBirth: formData.dateOfBirth,
+      placeOfBirth: formData.placeOfBirth,
+      nationality: formData.nationality,
+      city: formData.city,
+      province: formData.province,
+      country: formData.country,
+      whatsapp: formData.whatsapp,
+      instagram: formData.instagram,
+      religion: formData.religion,
+      maritalStatus: formData.maritalStatus,
+      childrenCount: formData.childrenCount ? Number(formData.childrenCount) : undefined,
+      hobbies: formData.hobbies,
+      interests: formData.interests,
+      preferredAgeMin: formData.preferredAgeMin ? Number(formData.preferredAgeMin) : undefined,
+      preferredAgeMax: formData.preferredAgeMax ? Number(formData.preferredAgeMax) : undefined,
+      preferredLocation: formData.preferredLocation,
+      expectations: formData.expectations,
+      aboutMe: (formData as any).aboutMe,
+      commitment: (formData as any).commitment
+    }
+    if (educations.length > 0) payload.education = JSON.stringify(educations)
+    if (jobs.length > 0) payload.workplace = JSON.stringify(jobs)
+    return payload
+  }
+
+  const flushAutoSave = async () => {
+    try {
+      setAutoSaveStatus('saving')
+      const payload = buildPayload()
+      const response = await fetch('/api/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      if (response.ok) {
+        localStorage.removeItem('profile_autosave')
+        setAutoSaveStatus('saved')
+        setTimeout(() => setAutoSaveStatus('idle'), 2000)
+      } else {
+        localStorage.setItem('profile_autosave', JSON.stringify({ payload, ts: Date.now() }))
+        setAutoSaveStatus('offline')
+      }
+    } catch {
+      const payload = buildPayload()
+      localStorage.setItem('profile_autosave', JSON.stringify({ payload, ts: Date.now() }))
+      setAutoSaveStatus('offline')
+    }
+  }
+
+  const scheduleAutoSave = () => {
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
+    autoSaveTimer.current = setTimeout(() => {
+      flushAutoSave()
+    }, 1500)
+  }
+
+  useEffect(() => {
+    scheduleAutoSave()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formData, educations, jobs])
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
+      flushAutoSave()
+    }
+    const handleOnline = async () => {
+      const cached = localStorage.getItem('profile_autosave')
+      if (cached) {
+        try {
+          const { payload } = JSON.parse(cached)
+          const res = await fetch('/api/profile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+          if (res.ok) {
+            localStorage.removeItem('profile_autosave')
+            setAutoSaveStatus('saved')
+            setTimeout(() => setAutoSaveStatus('idle'), 2000)
+          }
+        } catch { }
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    window.addEventListener('online', handleOnline)
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      window.removeEventListener('online', handleOnline)
+    }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -571,7 +688,7 @@ export default function ProfilePage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
                 <div className="space-y-1.5 md:space-y-2">
                   <Label className="text-slate-600 md:text-slate-700 font-medium text-xs md:text-sm">Kewarganegaraan</Label>
-                  <Input value={formData.nationality} onChange={(e) => handleChange('nationality', e.target.value)} className="h-11 bg-gray-50 md:bg-pink-50/30 border-gray-200 md:border-pink-200 rounded-xl text-base" />
+                  <Input value={formData.nationality} onChange={(e) => handleChange('nationality', e.target.value)} list="country-list" onFocus={loadCountriesList} className="h-11 bg-gray-50 md:bg-pink-50/30 border-gray-200 md:border-pink-200 rounded-xl text-base" />
                 </div>
                 <div className="space-y-1.5 md:space-y-2">
                   <Label className="text-slate-600 md:text-slate-700 font-medium text-xs md:text-sm">Status Pernikahan</Label>
@@ -797,6 +914,11 @@ export default function ProfilePage() {
               <option key={n} value={n} />
             ))}
           </datalist>
+          <datalist id="country-list">
+            {countriesList.map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
           
           {/* SECTION: KESIAPAN PERNIKAHAN */}
           <div className="bg-white md:bg-white/80 md:backdrop-blur-sm rounded-xl md:rounded-3xl border border-gray-100 md:border-pink-200/60 shadow-sm md:shadow-sm md:shadow-pink-100/40 overflow-hidden">
@@ -891,6 +1013,13 @@ export default function ProfilePage() {
         </div>
 
       </form>
+      {autoSaveStatus === 'saved' && (
+        <div className="fixed top-3 right-3 md:top-5 md:right-5 z-50">
+          <div className="px-3 py-1 rounded-full text-xs bg-green-100 border border-green-200 text-green-700 shadow-sm">
+            Tersimpan
+          </div>
+        </div>
+      )}
     </div>
   )
 }

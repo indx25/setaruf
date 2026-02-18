@@ -111,9 +111,32 @@ export default function AdminPage() {
 
   // Dialogs
   const [showUserDialog, setShowUserDialog] = useState(false)
+  const [editingUser, setEditingUser] = useState<any>(null)
+  const [userNameInput, setUserNameInput] = useState('')
+  const [userEmailInput, setUserEmailInput] = useState('')
+  const [userIsAdminInput, setUserIsAdminInput] = useState('false')
+  const [userIsPremiumInput, setUserIsPremiumInput] = useState('false')
+  const [userIsBlockedInput, setUserIsBlockedInput] = useState('false')
+  const [userPasswordInput, setUserPasswordInput] = useState('')
   const [showPaymentDialog, setShowPaymentDialog] = useState(false)
   const [selectedPayment, setSelectedPayment] = useState<any>(null)
   const [paymentNote, setPaymentNote] = useState('')
+  // Subscriptions
+  const [subscriptions, setSubscriptions] = useState<any[]>([])
+  const [subSearch, setSubSearch] = useState('')
+  const [subPlan, setSubPlan] = useState('') // '', 'free', 'premium'
+  const [subActive, setSubActive] = useState('') // '', 'true', 'false'
+  const [showSubDialog, setShowSubDialog] = useState(false)
+  const [editingSub, setEditingSub] = useState<any>(null)
+  const [subPlanInput, setSubPlanInput] = useState('free')
+  const [subDurationInput, setSubDurationInput] = useState('1')
+  const [subStartInput, setSubStartInput] = useState('')
+  const [subEndInput, setSubEndInput] = useState('')
+  const [subTrialInput, setSubTrialInput] = useState('true')
+  // User Details
+  const [showUserDetailDialog, setShowUserDetailDialog] = useState(false)
+  const [userDetail, setUserDetail] = useState<any>(null)
+  const [lastVerificationUrl, setLastVerificationUrl] = useState('')
 
   useEffect(() => {
     checkAdminAccess()
@@ -126,8 +149,9 @@ export default function AdminPage() {
       if (activeTab === 'payments') loadPayments()
       if (activeTab === 'log') loadLogs()
       if (activeTab === 'ads') loadAds()
+      if (activeTab === 'subscriptions') loadSubscriptions()
     }
-  }, [isAdmin, activeTab, userSearch, paymentFilter, insightDays, userGender, userBlocked, userPremium, userHasProfile, userCity, userMinAge, userMaxAge, paymentDays, logType, logAction, logQ, logFrom, logTo, adQ, adPosition, adActive])
+  }, [isAdmin, activeTab, userSearch, paymentFilter, insightDays, userGender, userBlocked, userPremium, userHasProfile, userCity, userMinAge, userMaxAge, paymentDays, logType, logAction, logQ, logFrom, logTo, adQ, adPosition, adActive, subSearch, subPlan, subActive])
 
   const checkAdminAccess = async () => {
     try {
@@ -156,6 +180,38 @@ export default function AdminPage() {
       router.push('/cooledition/login')
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const openUserDetails = async (user: any) => {
+    try {
+      const response = await fetch(`/api/admin/users/${user.id}`)
+      const data = await response.json()
+      if (!response.ok) {
+        alert(data.error || 'Gagal memuat detail user')
+        return
+      }
+      setUserDetail(data.user)
+      setShowUserDetailDialog(true)
+    } catch (err: any) {
+      alert(err.message || 'Error memuat detail user')
+    }
+  }
+
+  const resendVerification = async (userId: string) => {
+    try {
+      const response = await fetch(`/api/admin/users/${userId}/resend-verification`, {
+        method: 'POST'
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        alert(data.error || 'Gagal mengirim ulang verifikasi')
+        return
+      }
+      setLastVerificationUrl(data.verificationUrl || '')
+      alert(data.message + (data.verificationUrl ? `\nLink: ${data.verificationUrl}` : ''))
+    } catch (err: any) {
+      alert(err.message || 'Error mengirim ulang verifikasi')
     }
   }
 
@@ -374,6 +430,133 @@ export default function AdminPage() {
     }
   }
 
+  const openEditUser = (user: any) => {
+    setEditingUser(user)
+    setUserNameInput(user.name || user.profile?.fullName || '')
+    setUserEmailInput(user.email || '')
+    setUserIsAdminInput(user.isAdmin ? 'true' : 'false')
+    setUserIsPremiumInput(user.isPremium ? 'true' : 'false')
+    setUserIsBlockedInput(user.isBlocked ? 'true' : 'false')
+    setUserPasswordInput('')
+    setShowUserDialog(true)
+  }
+
+  const loadSubscriptions = async () => {
+    try {
+      const params = new URLSearchParams()
+      if (subSearch) params.set('search', subSearch)
+      if (subPlan) params.set('plan', subPlan)
+      if (subActive) params.set('active', subActive)
+      const url = `/api/admin/subscriptions?${params.toString()}`
+      const response = await fetch(url)
+      const data = await response.json()
+      if (response.ok) {
+        setSubscriptions(data.subscriptions || [])
+      }
+    } catch (err) {
+      console.error('Error loading subscriptions:', err)
+    }
+  }
+
+  const openEditSub = (sub: any) => {
+    setEditingSub(sub)
+    setSubPlanInput(sub.planType || 'free')
+    setSubDurationInput(String(sub.duration || 1))
+    setSubStartInput(sub.startDate ? new Date(sub.startDate).toISOString().substring(0, 10) : '')
+    setSubEndInput(sub.endDate ? new Date(sub.endDate).toISOString().substring(0, 10) : '')
+    setSubTrialInput(sub.isTrial ? 'true' : 'false')
+    setShowSubDialog(true)
+  }
+
+  const saveEditSub = async () => {
+    if (!editingSub) return
+    try {
+      const payload: any = {
+        planType: subPlanInput,
+        duration: parseInt(subDurationInput || '1', 10),
+        startDate: subStartInput ? new Date(subStartInput).toISOString() : undefined,
+        endDate: subEndInput ? new Date(subEndInput).toISOString() : undefined,
+        isTrial: subPlanInput === 'free' ? subTrialInput === 'true' : false,
+        upgradeToPremium: subPlanInput === 'premium'
+      }
+      const response = await fetch(`/api/admin/subscriptions/${editingSub.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        alert(data.error || 'Gagal mengupdate subscription')
+        return
+      }
+      setShowSubDialog(false)
+      setEditingSub(null)
+      await loadSubscriptions()
+      await loadInsights()
+    } catch (err: any) {
+      alert(err.message || 'Error mengupdate subscription')
+    }
+  }
+
+  const quickUpgradePremium = async (sub: any) => {
+    try {
+      const payload = {
+        planType: 'premium',
+        duration: 1,
+        startDate: new Date().toISOString(),
+        isTrial: false,
+        isActive: true,
+        upgradeToPremium: true
+      }
+      const response = await fetch(`/api/admin/subscriptions/${sub.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        alert(data.error || 'Gagal upgrade ke premium')
+        return
+      }
+      await loadSubscriptions()
+      await loadInsights()
+    } catch (err: any) {
+      alert(err.message || 'Error upgrade ke premium')
+    }
+  }
+
+  const saveEditUser = async () => {
+    if (!editingUser) return
+    try {
+      const payload: any = {
+        name: userNameInput,
+        email: userEmailInput,
+        isAdmin: userIsAdminInput === 'true',
+        isPremium: userIsPremiumInput === 'true',
+        isBlocked: userIsBlockedInput === 'true',
+      }
+      if (userPasswordInput.trim()) {
+        payload.password = userPasswordInput.trim()
+      }
+      const response = await fetch(`/api/admin/users/${editingUser.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await response.json()
+      if (!response.ok) {
+        alert(data.error || 'Gagal mengupdate user')
+        return
+      }
+      setShowUserDialog(false)
+      setEditingUser(null)
+      await loadUsers()
+      await loadInsights()
+    } catch (err: any) {
+      alert(err.message || 'Error mengupdate user')
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -419,31 +602,6 @@ export default function AdminPage() {
               <Shield className="w-3 h-3 mr-1" />
               Admin
             </Badge>
-                  <Button
-                    variant="secondary"
-                    onClick={async () => {
-                      if (!confirm('Generate 50 sample users dengan data realistis?')) return
-                      try {
-                        setIsLoading(true)
-                        const res = await fetch('/api/admin/seed-sample', { method: 'POST' })
-                        const data = await res.json()
-                        if (!res.ok) {
-                          alert(data.error || 'Gagal membuat sample users')
-                        } else {
-                          alert('Berhasil membuat sample users')
-                          await loadInsights()
-                          setActiveTab('users')
-                          await loadUsers()
-                        }
-                      } catch (e: any) {
-                        alert(e.message || 'Error')
-                      } finally {
-                        setIsLoading(false)
-                      }
-                    }}
-                  >
-                    Seed Sample Users (50)
-                  </Button>
             <Button
               variant="outline"
               onClick={async () => {
@@ -463,11 +621,12 @@ export default function AdminPage() {
 
       <div className="max-w-7xl mx-auto px-4 py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-6 lg:grid-cols-7 gap-2">
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 md:grid-cols-6 lg:grid-cols-8 gap-2">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="insight">Insight</TabsTrigger>
             <TabsTrigger value="log">Log</TabsTrigger>
             <TabsTrigger value="users">Users</TabsTrigger>
+            <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
             <TabsTrigger value="payments">Payments</TabsTrigger>
             <TabsTrigger value="settings">Settings</TabsTrigger>
             <TabsTrigger value="ads">Advertising</TabsTrigger>
@@ -983,6 +1142,7 @@ export default function AdminPage() {
                     <TableRow>
                       <TableHead>Name</TableHead>
                       <TableHead>Email</TableHead>
+                      <TableHead>Unique Code</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Joined</TableHead>
                       <TableHead>Actions</TableHead>
@@ -993,11 +1153,19 @@ export default function AdminPage() {
                       <TableRow key={user.id}>
                         <TableCell>
                           <div>
-                            <p className="font-medium">{user.name || user.profile?.fullName || 'Unknown'}</p>
+                            <p
+                              className="font-medium cursor-pointer hover:text-rose-600"
+                              onClick={() => openUserDetails(user)}
+                            >
+                              {user.name || user.profile?.fullName || 'Unknown'}
+                            </p>
                             <p className="text-xs text-gray-500">{getInitials(user.name) || ''}</p>
                           </div>
                         </TableCell>
                         <TableCell>{user.email}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{user.uniqueCode || '-'}</Badge>
+                        </TableCell>
                         <TableCell>
                           <div className="flex gap-1">
                             {user.isPremium && <Badge className="bg-amber-500">Premium</Badge>}
@@ -1013,6 +1181,14 @@ export default function AdminPage() {
                             <Button
                               variant="ghost"
                               size="icon"
+                              onClick={() => openEditUser(user)}
+                              title="Edit user"
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
                               onClick={() => handleBlockUser(user.id, user.isBlocked)}
                             >
                               {user.isBlocked ? <Shield className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />}
@@ -1023,6 +1199,120 @@ export default function AdminPage() {
                               onClick={() => handleDeleteUser(user.id)}
                             >
                               <Trash2 className="w-4 h-4 text-red-500" />
+                            </Button>
+                            {user.isBlocked && (
+                              <Button
+                                className="bg-amber-600 hover:bg-amber-700 text-white"
+                                onClick={() => resendVerification(user.id)}
+                                title="Kirim ulang verifikasi email"
+                              >
+                                Resend Verification
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Subscriptions Tab */}
+          <TabsContent value="subscriptions" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <div className="space-y-3">
+                  <div>
+                    <CardTitle>Subscriptions</CardTitle>
+                    <CardDescription>Kelola status free/premium dan masa berlaku</CardDescription>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-3">
+                    <Input placeholder="Cari nama/email" value={subSearch} onChange={(e) => setSubSearch(e.target.value)} />
+                    <select value={subPlan} onChange={(e) => setSubPlan(e.target.value)} className="border rounded-md px-3 py-2 text-sm">
+                      <option value="">Semua Plan</option>
+                      <option value="free">Free</option>
+                      <option value="premium">Premium</option>
+                    </select>
+                    <select value={subActive} onChange={(e) => setSubActive(e.target.value)} className="border rounded-md px-3 py-2 text-sm">
+                      <option value="">Aktif: Semua</option>
+                      <option value="true">Aktif</option>
+                      <option value="false">Nonaktif</option>
+                    </select>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" onClick={loadSubscriptions}>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        Terapkan
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          setSubSearch('')
+                          setSubPlan('')
+                          setSubActive('')
+                          loadSubscriptions()
+                        }}
+                      >
+                        Reset
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>User</TableHead>
+                      <TableHead>Plan</TableHead>
+                      <TableHead>Duration</TableHead>
+                      <TableHead>Periode</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {subscriptions.map((sub) => (
+                      <TableRow key={sub.id}>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{sub.user?.name || sub.user?.profile?.fullName || 'Unknown'}</p>
+                            <p className="text-xs text-gray-500">{sub.user?.email}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell className="capitalize">
+                          <Badge className={sub.planType === 'premium' ? 'bg-purple-500' : 'bg-gray-500'}>
+                            {sub.planType}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{sub.duration || '-'}</TableCell>
+                        <TableCell>
+                          {sub.startDate ? new Date(sub.startDate).toLocaleDateString('id-ID') : '-'}{' '}
+                          {' - '}{sub.endDate ? new Date(sub.endDate).toLocaleDateString('id-ID') : 'Tidak ditentukan'}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            {sub.isActive && <Badge className="bg-green-500">Aktif</Badge>}
+                            {sub.isTrial && <Badge variant="outline">Trial</Badge>}
+                            {sub.user?.isPremium && <Badge className="bg-amber-500">Premium User</Badge>}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => openEditSub(sub)}
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              className="bg-purple-600 hover:bg-purple-700 text-white"
+                              onClick={() => quickUpgradePremium(sub)}
+                              disabled={sub.user?.isPremium || sub.planType === 'premium'}
+                            >
+                              Upgrade ke Premium
                             </Button>
                           </div>
                         </TableCell>
@@ -1191,33 +1481,33 @@ export default function AdminPage() {
                     Reset Database User
                   </Button>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between mb-4">
                   <div className="text-sm text-gray-600">
-                    Buat 30 sample data user acak untuk pengujian.
+                    Seed 30 sample user terbaru dengan profil lengkap, psikotes lengkap, quote, nomor WA, dan link Instagram.
                   </div>
-                  <Button onClick={async () => {
-                    try {
-                      setIsLoading(true)
-                      const res = await fetch('/api/admin/seed-random', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ count: 30 })
-                      })
-                      const data = await res.json()
-                      if (!res.ok) {
-                        alert(data.error || 'Gagal membuat sample data')
-                      } else {
-                        alert(`Berhasil membuat ${data.created} sample user`)
-                        await loadInsights()
-                        setActiveTab('users')
+                  <Button
+                    className="bg-gray-900 text-white hover:bg-gray-800"
+                    onClick={async () => {
+                      try {
+                        setIsLoading(true)
+                        const res = await fetch('/api/admin/seed-complete-30', { method: 'POST' })
+                        const data = await res.json()
+                        if (!res.ok) {
+                          alert(data.error || 'Gagal membuat sample lengkap')
+                        } else {
+                          alert(`Berhasil membuat ${data.created} sample lengkap`)
+                          await loadInsights()
+                          setActiveTab('users')
+                          await loadUsers()
+                        }
+                      } catch (err: any) {
+                        alert(err.message || 'Error')
+                      } finally {
+                        setIsLoading(false)
                       }
-                    } catch (err: any) {
-                      alert(err.message || 'Error')
-                    } finally {
-                      setIsLoading(false)
-                    }
-                  }}>
-                    Generate 30 Sample Users
+                    }}
+                  >
+                    Seed 30 Sample Lengkap
                   </Button>
                 </div>
                 <Alert>
@@ -1352,6 +1642,253 @@ export default function AdminPage() {
 
       </div>
 
+      {/* Edit User Dialog */}
+      <Dialog open={showUserDialog} onOpenChange={setShowUserDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit User</DialogTitle>
+            <DialogDescription>Ubah data user. Password opsional.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-sm">Name</Label>
+                <Input value={userNameInput} onChange={(e) => setUserNameInput(e.target.value)} placeholder="Nama" />
+              </div>
+              <div>
+                <Label className="text-sm">Email</Label>
+                <Input value={userEmailInput} onChange={(e) => setUserEmailInput(e.target.value)} placeholder="email@example.com" />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <Label className="text-sm">Admin</Label>
+                <select value={userIsAdminInput} onChange={(e) => setUserIsAdminInput(e.target.value)} className="border rounded px-2 py-2 text-sm w-full">
+                  <option value="false">Bukan Admin</option>
+                  <option value="true">Admin</option>
+                </select>
+              </div>
+              <div>
+                <Label className="text-sm">Premium</Label>
+                <select value={userIsPremiumInput} onChange={(e) => setUserIsPremiumInput(e.target.value)} className="border rounded px-2 py-2 text-sm w-full">
+                  <option value="false">Tidak Premium</option>
+                  <option value="true">Premium</option>
+                </select>
+              </div>
+              <div>
+                <Label className="text-sm">Blocked</Label>
+                <select value={userIsBlockedInput} onChange={(e) => setUserIsBlockedInput(e.target.value)} className="border rounded px-2 py-2 text-sm w-full">
+                  <option value="false">Aktif</option>
+                  <option value="true">Blocked</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <Label className="text-sm">Password (opsional)</Label>
+              <Input type="password" value={userPasswordInput} onChange={(e) => setUserPasswordInput(e.target.value)} placeholder="Kosongkan jika tidak diganti" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowUserDialog(false)}>Batal</Button>
+            <Button onClick={saveEditUser}>Simpan</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Subscription Dialog */}
+      <Dialog open={showSubDialog} onOpenChange={setShowSubDialog}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit Subscription</DialogTitle>
+            <DialogDescription>Ubah plan dan masa berlaku subscription</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-sm">Plan</Label>
+                <select value={subPlanInput} onChange={(e) => setSubPlanInput(e.target.value)} className="border rounded px-2 py-2 text-sm w-full">
+                  <option value="free">Free</option>
+                  <option value="premium">Premium</option>
+                </select>
+              </div>
+              <div>
+                <Label className="text-sm">Duration (bulan)</Label>
+                <Input value={subDurationInput} onChange={(e) => setSubDurationInput(e.target.value)} />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <Label className="text-sm">Mulai</Label>
+                <Input type="date" value={subStartInput} onChange={(e) => setSubStartInput(e.target.value)} />
+              </div>
+              <div>
+                <Label className="text-sm">Selesai</Label>
+                <Input type="date" value={subEndInput} onChange={(e) => setSubEndInput(e.target.value)} />
+              </div>
+            </div>
+            {subPlanInput === 'free' && (
+              <div>
+                <Label className="text-sm">Trial</Label>
+                <select value={subTrialInput} onChange={(e) => setSubTrialInput(e.target.value)} className="border rounded px-2 py-2 text-sm w-full">
+                  <option value="true">True</option>
+                  <option value="false">False</option>
+                </select>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowSubDialog(false)}>Batal</Button>
+            <Button onClick={saveEditSub}>Simpan</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* User Detail Dialog */}
+      <Dialog open={showUserDetailDialog} onOpenChange={setShowUserDetailDialog}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Detail User</DialogTitle>
+            <DialogDescription>Profil dan hasil psikotes</DialogDescription>
+          </DialogHeader>
+          {userDetail && (
+            <div className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Users className="w-4 h-4" />
+                    {userDetail.name || userDetail.profile?.fullName || 'Unknown'}
+                  </CardTitle>
+                  <CardDescription>{userDetail.email}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {userDetail.isBlocked && lastVerificationUrl && (
+                    <div className="mb-3 p-3 border rounded bg-amber-50">
+                      <div className="text-sm text-amber-800">Tautan verifikasi terbaru:</div>
+                      <a href={lastVerificationUrl} target="_blank" rel="noopener noreferrer" className="text-rose-600 text-sm break-all hover:underline">
+                        {lastVerificationUrl}
+                      </a>
+                      <div className="mt-2">
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            try {
+                              navigator.clipboard.writeText(lastVerificationUrl)
+                              alert('Tautan verifikasi disalin ke clipboard')
+                            } catch {}
+                          }}
+                        >
+                          Copy Link
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  <div className="flex gap-2 mb-3">
+                    {userDetail.isAdmin && <Badge className="bg-purple-500">Admin</Badge>}
+                    {userDetail.isPremium && <Badge className="bg-amber-500">Premium</Badge>}
+                    {userDetail.isBlocked && <Badge variant="destructive">Blocked</Badge>}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <span className="text-gray-500">Joined</span>
+                      <div className="font-medium">{new Date(userDetail.createdAt).toLocaleDateString('id-ID')}</div>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Unique Code</span>
+                      <div><Badge variant="outline">{userDetail.uniqueCode || '-'}</Badge></div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Profil</CardTitle>
+                  <CardDescription>Ringkasan biodata</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <span className="text-gray-500">Nama Lengkap</span>
+                      <div className="font-medium">{userDetail.profile?.fullName || '-'}</div>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Gender</span>
+                      <div className="font-medium">{userDetail.profile?.gender || '-'}</div>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Usia</span>
+                      <div className="font-medium">{userDetail.profile?.age ?? '-'}</div>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Kota</span>
+                      <div className="font-medium">{userDetail.profile?.city || '-'}</div>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Pendidikan</span>
+                      <div className="font-medium">{userDetail.profile?.education || '-'}</div>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Pekerjaan</span>
+                      <div className="font-medium">{userDetail.profile?.occupation || '-'}</div>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Agama</span>
+                      <div className="font-medium">{userDetail.profile?.religion || '-'}</div>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Level Religius</span>
+                      <div className="font-medium">{userDetail.profile?.religiousLevel || '-'}</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Psikotes</CardTitle>
+                  <CardDescription>Skor dan hasil</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {(userDetail.psychotests || []).map((t: any) => (
+                      <div key={t.id} className="border rounded p-3">
+                        <div className="flex items-center justify-between">
+                          <div className="font-semibold capitalize">
+                            {t.testType === 'pre_marriage' ? 'Pra-Nikah' :
+                             t.testType === 'disc' ? 'DISC' :
+                             t.testType === 'clinical' ? 'Clinical' :
+                             t.testType === '16pf' ? '16PF' : t.testType}
+                          </div>
+                          <Badge className="bg-blue-500">{Math.round((t.score || 0) * 100) / 100}%</Badge>
+                        </div>
+                        <div className="text-sm text-gray-600 mt-1">{t.result || '-'}</div>
+                        <div className="text-xs text-gray-500 mt-1">
+                          {t.completedAt ? new Date(t.completedAt).toLocaleDateString('id-ID') : '-'}
+                        </div>
+                      </div>
+                    ))}
+                    {(!userDetail.psychotests || userDetail.psychotests.length === 0) && (
+                      <div className="text-sm text-gray-600">Belum ada hasil psikotes</div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowUserDetailDialog(false)}>Tutup</Button>
+            {userDetail?.isBlocked && (
+              <Button
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+                onClick={() => resendVerification(userDetail.id)}
+                title="Kirim ulang verifikasi email"
+              >
+                Resend Verification
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Payment Review Dialog */}
       <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>

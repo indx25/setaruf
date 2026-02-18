@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import bcrypt from 'bcryptjs'
+import { throttle } from '@/lib/rate-limit'
 
 const maleNames = ['Ahmad', 'Budi', 'Dimas', 'Eko', 'Fajar', 'Gilang', 'Hendra', 'Ilham', 'Joko', 'Kurnia', 'Lutfi', 'Marlan', 'Naufal', 'Omar', 'Pandu']
 const femaleNames = ['Aisyah', 'Bella', 'Citra', 'Dewi', 'Eka', 'Fani', 'Gita', 'Hana', 'Intan', 'Julia', 'Kartika', 'Lia', 'Maya', 'Nadia', 'Olivia', 'Putri']
@@ -27,6 +28,9 @@ export async function POST(request: NextRequest) {
     if (process.env.ALLOW_ADMIN_TOOLS !== 'true') {
       return NextResponse.json({ error: 'Admin tools disabled' }, { status: 403 })
     }
+
+    const allowed = await throttle(`admin:${adminId}:seed-random`, 2, 10 * 60_000)
+    if (!allowed) return NextResponse.json({ error: 'Rate limit. Coba lagi nanti.' }, { status: 429 })
 
     const body = await request.json().catch(() => ({}))
     const count = Math.min(Math.max(Number(body.count || 30), 1), 100)

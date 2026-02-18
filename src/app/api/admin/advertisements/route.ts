@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { throttle } from '@/lib/rate-limit'
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,6 +13,12 @@ export async function GET(request: NextRequest) {
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     const admin = await db.user.findUnique({ where: { id: userId } })
     if (!admin?.isAdmin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@setaruf.com'
+    const baseLimit = 30
+    const limitPerMin = admin.email === adminEmail ? baseLimit * 3 : baseLimit
+    const allowed = await throttle(`admin:${userId}:ads-list`, limitPerMin, 60_000)
+    if (!allowed) return NextResponse.json({ error: 'Rate limit. Coba lagi nanti.' }, { status: 429 })
 
     const { searchParams } = new URL(request.url)
     const page = parseInt(searchParams.get('page') || '1', 10)
@@ -36,7 +43,7 @@ export async function GET(request: NextRequest) {
       db.advertisement.count({ where })
     ])
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       advertisements: items,
       pagination: {
         page,
@@ -45,6 +52,8 @@ export async function GET(request: NextRequest) {
         totalPages: Math.ceil(total / limit)
       }
     })
+    res.headers.set('Cache-Control', 'private, max-age=30')
+    return res
   } catch (e) {
     return NextResponse.json({ error: 'Failed to load advertisements' }, { status: 500 })
   }

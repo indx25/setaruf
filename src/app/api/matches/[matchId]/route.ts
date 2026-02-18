@@ -119,6 +119,33 @@ export async function POST(
     let notificationMessage = ''
 
     switch (action) {
+      case 'like':
+        updatedMatch = await db.match.update({
+          where: { id: matchId },
+          data: {
+            status: 'liked',
+            updatedAt: new Date()
+          }
+        })
+        notificationType = 'like'
+        notificationTitle = 'Anda disukai!'
+        notificationMessage = 'Pengguna menyukai profil Anda.'
+        break
+
+      case 'dislike':
+        updatedMatch = await db.match.update({
+          where: { id: matchId },
+          data: {
+            status: 'disliked',
+            updatedAt: new Date()
+          }
+        })
+        return NextResponse.json({
+          success: true,
+          message: 'Match dihapus dari rekomendasi',
+          match: updatedMatch
+        })
+
       case 'approve_profile':
         // Only target can approve profile view
         if (isRequester) {

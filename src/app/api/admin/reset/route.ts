@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import bcrypt from 'bcryptjs'
+import { throttle } from '@/lib/rate-limit'
 
 async function ensureAdmin() {
   const email = 'admin@setaruf.com'
@@ -55,6 +56,9 @@ export async function POST(request: NextRequest) {
     if (process.env.ALLOW_ADMIN_TOOLS !== 'true') {
       return NextResponse.json({ error: 'Admin tools disabled' }, { status: 403 })
     }
+
+    const allowed = await throttle(`admin:${userId}:reset`, 1, 10 * 60_000)
+    if (!allowed) return NextResponse.json({ error: 'Rate limit. Coba lagi nanti.' }, { status: 429 })
 
     const ensuredAdmin = await ensureAdmin()
 
