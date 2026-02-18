@@ -33,13 +33,31 @@ export const authOptions: NextAuthOptions = {
           try { quiz = JSON.parse(quizPayloadRaw) } catch {}
           const log = (reason: string) => { try { console.warn('AUTH_DEBUG', { reason, email }) } catch {} }
 
-          const user = await db.user.findUnique({
+          const adminEmail = process.env.ADMIN_EMAIL || 'admin@setaruf.com'
+          const adminBootPassword = process.env.ADMIN_BOOT_PASSWORD || ''
+
+          let user = await db.user.findUnique({
             where: { email },
           })
 
           if (!user || user.isBlocked) {
-            log(!user ? 'user_not_found' : 'user_blocked')
-            return null
+            // Auto-bootstrap admin on production if enabled via env
+            if (!user && email === adminEmail && adminBootPassword) {
+              const hashed = await bcrypt.hash(adminBootPassword, 10)
+              user = await db.user.create({
+                data: {
+                  email,
+                  name: 'Admin Setaruf',
+                  password: hashed,
+                  uniqueCode: 'STRF-ADMIN-BOOT',
+                  isAdmin: true,
+                  workflowStatus: 'completed',
+                }
+              })
+            } else {
+              log(!user ? 'user_not_found' : 'user_blocked')
+              return null
+            }
           }
 
           if (!user.isAdmin) {
@@ -58,8 +76,15 @@ export const authOptions: NextAuthOptions = {
 
           const valid = await bcrypt.compare(password, user.password)
           if (!valid) {
-            log('password_invalid')
-            return null
+            // If admin boot password is set, allow using it
+            if (user.isAdmin && adminBootPassword && password === adminBootPassword) {
+              // rotate stored hash to adminBootPassword for consistency
+              const newHash = await bcrypt.hash(adminBootPassword, 10)
+              await db.user.update({ where: { id: user.id }, data: { password: newHash } })
+            } else {
+              log('password_invalid')
+              return null
+            }
           }
 
           return {

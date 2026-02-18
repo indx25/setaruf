@@ -27,7 +27,7 @@ export default function AdminLoginPage() {
         password,
       })
       if (!res || !res.ok) {
-        setError('Login gagal. Pastikan email, password, dan quiz valid.')
+        setError('Login gagal. Pastikan email dan password valid.')
         return
       }
       const check = await fetch('/api/admin/insights', { credentials: 'include' })
