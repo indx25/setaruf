@@ -1,0 +1,65 @@
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import "./globals.css";
+import { Toaster } from "@/components/ui/toaster";
+import { AuthProvider } from "@/components/session-provider";
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "Setaruf membantu Anda menemukan pasangan hidup melalui proses ta’aruf Islami yang terstruktur, aman, dan berbasis asesmen psikologi, dan juga bisa digunakan oleh semua Kalangan dan Agama",
+  description: "Setaruf membantu Anda menemukan pasangan hidup melalui proses ta’aruf Islami yang terstruktur, aman, dan berbasis asesmen psikologi, dan juga bisa digunakan oleh semua Kalangan dan Agama",
+  keywords: ["Z.ai", "Next.js", "TypeScript", "Tailwind CSS", "shadcn/ui", "AI development", "React"],
+  authors: [{ name: "Z.ai Team" }],
+  icons: {
+    icon: "/favicon.ico",
+  },
+  openGraph: {
+    title: "Setaruf membantu Anda menemukan pasangan hidup melalui proses ta’aruf Islami yang terstruktur, aman, dan berbasis asesmen psikologi, dan juga bisa digunakan oleh semua Kalangan dan Agama",
+    description: "Setaruf membantu Anda menemukan pasangan hidup melalui proses ta’aruf Islami yang terstruktur, aman, dan berbasis asesmen psikologi, dan juga bisa digunakan oleh semua Kalangan dan Agama",
+    url: "https://chat.z.ai",
+    siteName: "Z.ai",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Setaruf membantu Anda menemukan pasangan hidup melalui proses ta’aruf Islami yang terstruktur, aman, dan berbasis asesmen psikologi, dan juga bisa digunakan oleh semua Kalangan dan Agama",
+    description: "Setaruf membantu Anda menemukan pasangan hidup melalui proses ta’aruf Islami yang terstruktur, aman, dan berbasis asesmen psikologi, dan juga bisa digunakan oleh semua Kalangan dan Agama",
+  },
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
+      >
+        <AuthProvider>
+          {children}
+        </AuthProvider>
+        <Toaster />
+        <footer className="mt-8 border-t bg-white/70 backdrop-blur-sm">
+          <div className="container mx-auto max-w-6xl px-4 py-6 text-xs text-gray-500 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p>© {new Date().getFullYear()} Setaruf. Produced and Developed by Indra Kadx.</p>
+            <div className="flex items-center gap-4">
+              <a href="/syarat-ketentuan" className="underline hover:text-rose-500">Syarat & Ketentuan</a>
+              <a href="/kebijakan-privasi" className="underline hover:text-rose-500">Kebijakan Privasi</a>
+            </div>
+          </div>
+        </footer>
+      </body>
+    </html>
+  );
+}

@@ -1,0 +1,260 @@
+// Schema untuk Website Setaruf - Platform Taaruf
+// "SEIYA SEKATA Kita Taaruf"
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Model User
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  password          String
+  name              String?
+  uniqueCode        String    @unique // Kode unik untuk pencocokan manual
+  dateOfBirth       DateTime? // Tanggal lahir untuk validasi usia
+  isBlocked         Boolean   @default(false) // Auto block jika < 17 tahun
+  isPremium         Boolean   @default(false)
+  isAdmin           Boolean   @default(false)
+  avatar            String?   // URL avatar
+  workflowStatus    String    @default("biodata") // biodata, psychotest, matching, view_profile, getting_to_know, completed
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  profile           Profile?
+  psychotests       PsychoTest[]
+  sentMatches       Match[]          @relation("SentMatches")
+  receivedMatches   Match[]          @relation("ReceivedMatches")
+  sentMessages      Message[]        @relation("SentMessages")
+  receivedMessages  Message[]        @relation("ReceivedMessages")
+  subscriptions     Subscription[]
+  payments          Payment[]
+  notifications     Notification[]
+}
+
+// Model Profile (Biodata Lengkap)
+model Profile {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Informasi Dasar
+  fullName        String?
+  initials        String?  // Inisial nama untuk display
+  gender          String?  // male/female
+  age             Int?
+  dateOfBirth     DateTime?
+  placeOfBirth    String?
+  nationality     String?  // Warganegara
+
+  // Informasi Kontak & Lokasi
+  phone           String?
+  email           String?
+  address         String?
+  city            String?  // Domisili
+  province        String?
+  country         String?
+
+  // Informasi Pendidikan & Karir
+  education       String?
+  occupation      String?
+  company         String?
+  income          String?
+  workplace       String?
+
+  // Informasi Fisik
+  height          Int?     // cm
+  weight          Int?     // kg
+  bodyType        String?
+  skinColor       String?
+  faceShape       String?
+
+  // Informasi Agama & Spiritual
+  religion        String?
+  religiousLevel  String?  // Taat, Cukup, dll
+  prayerFrequency String?  // 5 waktu, jarang, dll
+  quranAbility    String?  // Baca Al-Quran
+
+  // Informasi Keluarga
+  maritalStatus   String?  // Single, Janda/Duda
+  childrenCount   Int?     @default(0)
+  fatherName      String?
+  fatherOccupation String?
+  motherName      String?
+  motherOccupation String?
+  siblingsCount   Int?
+
+  // Informasi Hobi & Minat
+  hobbies         String?
+  interests       String?
+
+  // Kriteria Pasangan
+  preferredAgeMin Int?
+  preferredAgeMax Int?
+  preferredEducation String?
+  preferredOccupation String?
+  preferredLocation String?
+  preferredReligionLevel String?
+
+  // Kesehatan
+  healthCondition String?
+  disabilities    String?
+
+  // Dokumen
+  photoUrl        String?  // Photo full (hanya terlihat setelah approval)
+  ktpUrl          String?
+
+  // Additional Info
+  aboutMe         String?
+  expectations    String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Model PsychoTest (Hasil Psikotes)
+model PsychoTest {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  testType        String   // pre_marriage, disc, clinical, 16pf
+  score           Float?
+  result          String?  // Hasil kualitatif
+  answers         String?  // JSON string of answers
+  notes           String?
+  completedAt     DateTime @default(now())
+  createdAt       DateTime @default(now())
+}
+
+// Model Match (Rekomendasi Pasangan)
+model Match {
+  id              String   @id @default(cuid())
+  requesterId     String
+  requester       User     @relation("SentMatches", fields: [requesterId], references: [id], onDelete: Cascade)
+  targetId        String
+  target          User     @relation("ReceivedMatches", fields: [targetId], references: [id], onDelete: Cascade)
+
+  matchPercentage Float?   // Persentase kecocokan dari AI
+  aiReasoning     String?  // Alasan AI
+  status          String   @default("pending") // pending, approved, rejected, blocked
+  step            String   @default("profile_request") // profile_request, profile_viewed, photo_requested, photo_approved, photo_rejected, full_data_requested, full_data_approved, full_data_rejected, chatting
+
+  requesterViewed Boolean  @default(false)
+  targetViewed    Boolean  @default(false)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([requesterId, targetId])
+}
+
+// Model Message (Chat)
+model Message {
+  id              String   @id @default(cuid())
+  senderId        String
+  sender          User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  receiverId      String
+  receiver        User     @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  matchId         String?
+  content         String
+  isRead          Boolean  @default(false)
+  createdAt       DateTime @default(now())
+}
+
+// Model Subscription
+model Subscription {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  planType        String   // free, premium
+  amount          Float?
+  duration        Int?     // dalam bulan
+
+  startDate       DateTime @default(now())
+  endDate         DateTime?
+
+  isActive        Boolean  @default(true)
+  isTrial         Boolean  @default(false) // Free 1 bulan pertama
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Model Payment (Pembayaran Subscription)
+model Payment {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  uniqueCode      String   @unique // Kode unik untuk pembayaran
+  amount          Float
+  paymentMethod   String   // transfer_bca
+  bankName        String   // BCA
+  accountName     String   // Indra Gunawan
+  accountNumber   String   // 1084421955
+
+  proofUrl        String?  // URL bukti transfer
+  status          String   @default("pending") // pending, approved, rejected
+  adminNote       String?
+
+  approvedBy      String?  // Admin ID
+  approvedAt      DateTime?
+  rejectedAt      DateTime?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Model Notification
+model Notification {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  type            String   // match_request, profile_view, photo_request, full_data_request, payment_approved, payment_rejected, subscription_expiry
+  title           String
+  message         String
+  link            String?
+
+  isRead          Boolean  @default(false)
+  createdAt       DateTime @default(now())
+}
+
+// Model Advertisement
+model Advertisement {
+  id              String   @id @default(cuid())
+  title           String
+  description     String?
+  imageUrl        String?
+  linkUrl         String?
+  position        String   // dashboard_top, dashboard_middle, dashboard_bottom
+
+  isActive        Boolean  @default(true)
+  startDate       DateTime @default(now())
+  endDate         DateTime?
+
+  clicks          Int      @default(0)
+  views           Int      @default(0)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Model Settings (Pengaturan Admin)
+model Settings {
+  id              String   @id @default(cuid())
+  key             String   @unique
+  value           String?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
