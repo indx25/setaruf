@@ -31,15 +31,18 @@ export const authOptions: NextAuthOptions = {
           const quizPayloadRaw = String(credentials?.quiz || '')
           let quiz: any = null
           try { quiz = JSON.parse(quizPayloadRaw) } catch {}
+          const log = (reason: string) => { try { console.warn('AUTH_DEBUG', { reason, email }) } catch {} }
 
           const rlKey = `quiz:login:${email}`
           if (isBlocked(rlKey)) {
+            log('rate_limited')
             throw new Error('Terlalu banyak jawaban salah. Coba lagi nanti.')
           }
 
           const quizResult = await verifyQuiz(quiz)
           if (!quizResult.success) {
             recordWrongQuizAttempt(rlKey)
+            log('quiz_invalid')
             throw new Error('Verifikasi quiz gagal')
           }
 
@@ -48,11 +51,13 @@ export const authOptions: NextAuthOptions = {
           })
 
           if (!user || user.isBlocked) {
+            log(!user ? 'user_not_found' : 'user_blocked')
             return null
           }
 
           const valid = await bcrypt.compare(password, user.password)
           if (!valid) {
+            log('password_invalid')
             return null
           }
 
@@ -62,6 +67,7 @@ export const authOptions: NextAuthOptions = {
             email: user.email,
           }
         } catch {
+          try { console.warn('AUTH_DEBUG', { reason: 'authorize_exception' }) } catch {}
           return null
         }
       }
