@@ -25,7 +25,6 @@ interface ProfileFormData {
   email: string;
   address: string;
   city: string;
-  province: string;
   country: string;
   religion: string;
   maritalStatus: string;
@@ -56,7 +55,6 @@ const INITIAL_FORM_STATE: ProfileFormData = {
   email: '',
   address: '',
   city: '',
-  province: '',
   country: 'Indonesia',
   religion: '',
   maritalStatus: '',
@@ -209,7 +207,7 @@ export default function ProfilePage() {
   }
 
   const validateForm = (): boolean => {
-    const requiredFields = ['fullName', 'gender', 'dateOfBirth', 'placeOfBirth', 'religion', 'nationality', 'city', 'province', 'country', 'maritalStatus']
+    const requiredFields = ['fullName', 'gender', 'dateOfBirth', 'placeOfBirth', 'religion', 'nationality', 'city', 'country', 'maritalStatus']
     const missingFields = requiredFields.filter(field => !formData[field])
     
     if (missingFields.length > 0) {
@@ -240,7 +238,6 @@ export default function ProfilePage() {
       placeOfBirth: formData.placeOfBirth,
       nationality: formData.nationality,
       city: formData.city,
-      province: formData.province,
       country: formData.country,
       whatsapp: formData.whatsapp,
       instagram: formData.instagram,
@@ -346,7 +343,7 @@ export default function ProfilePage() {
         placeOfBirth: formData.placeOfBirth,
         nationality: formData.nationality,
         city: formData.city,
-        province: formData.province,
+        
         country: formData.country,
         whatsapp: formData.whatsapp,
         instagram: formData.instagram,

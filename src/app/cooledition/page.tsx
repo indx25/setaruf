@@ -1745,7 +1745,7 @@ export default function AdminPage() {
 
       {/* User Detail Dialog */}
       <Dialog open={showUserDetailDialog} onOpenChange={setShowUserDetailDialog}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="w-[95vw] sm:w-full sm:max-w-3xl md:max-w-5xl lg:max-w-6xl max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Detail User</DialogTitle>
             <DialogDescription>Profil dan hasil psikotes</DialogDescription>

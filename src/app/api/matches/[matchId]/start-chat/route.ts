@@ -21,17 +21,15 @@ export async function POST(
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    // Prasyarat menuju chat: minimal full_data_approved
-    if (match.step !== 'full_data_approved' && match.step !== 'chatting') {
+    if (match.step !== 'profile_viewed' && match.step !== 'full_data_approved' && match.step !== 'chatting') {
       return NextResponse.json({ error: 'Belum dapat memulai chat' }, { status: 400 })
     }
 
-    // Kuota maksimal 2 chat aktif (step chatting)
     const activeChats = await db.match.count({
       where: {
         OR: [{ requesterId: userId }, { targetId: userId }],
         step: 'chatting',
-        status: { in: ['pending', 'approved'] }
+        status: { in: ['pending', 'approved', 'chatting'] }
       }
     })
     if (activeChats >= 2 && match.step !== 'chatting') {
@@ -40,7 +38,7 @@ export async function POST(
 
     const updated = await db.match.update({
       where: { id: matchId },
-      data: { step: 'chatting', status: 'approved' }
+      data: { step: 'chatting', status: 'chatting' }
     })
     const remaining = Math.max(0, 2 - (activeChats + (match.step === 'chatting' ? 0 : 1)))
     return NextResponse.json({ ok: true, remaining, match: updated })

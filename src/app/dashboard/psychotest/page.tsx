@@ -314,6 +314,7 @@ export default function PsychotestPage() {
   const startTest = (category: TestCategory) => {
     setCurrentCategory(category)
     setCurrentQuestionIndex(0)
+    setAnswers({})
     setShowResults(false)
   }
 
@@ -525,6 +526,7 @@ export default function PsychotestPage() {
                 <div>
                   <h3 className="text-xl font-semibold mb-4">{currentQuestion.text}</h3>
                   <RadioGroup
+                    key={currentQuestion.id}
                     value={answers[currentQuestion.id]?.toString()}
                     onValueChange={handleAnswer}
                   >

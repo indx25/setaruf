@@ -224,7 +224,7 @@ export async function GET(request: NextRequest) {
               matchPercentage: Math.round(score),
               aiReasoning: 'Rekomendasi berdasarkan kecocokan psikotes.',
               status: 'pending',
-              step: 'profile_viewed'
+              step: 'profile_request'
             }
           })
         }

@@ -11,10 +11,22 @@ if (process.env.DATABASE_URL) {
   const { PrismaAdapter } = require('@next-auth/prisma-adapter')
   const mod = require('@/lib/db')
   db = mod.db
-  adapter = PrismaAdapter(db)
+  const base = PrismaAdapter(db)
+  adapter = {
+    ...base,
+    async createUser(data: any) {
+      const code =
+        `STRF-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
+      const sanitized = { ...data }
+      if ('image' in sanitized) delete (sanitized as any).image
+      if ('emailVerified' in sanitized) delete (sanitized as any).emailVerified
+      return base.createUser({ ...sanitized, uniqueCode: code })
+    }
+  }
 }
 
 export const authOptions: NextAuthOptions = {
+  trustHost: true,
   ...(adapter ? { adapter } : {}),
   session: {
     strategy: 'jwt',
@@ -179,9 +191,14 @@ export const authOptions: NextAuthOptions = {
     GoogleProvider({
       clientId: process.env.GOOGLE_CLIENT_ID || '',
       clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+      allowDangerousEmailAccountLinking: true,
     })
   ],
   callbacks: {
+    async signIn({ user, account, profile }) {
+      try { console.warn('NEXTAUTH_SIGNIN', { provider: account?.provider, email: user?.email }) } catch {}
+      return true
+    },
     async jwt({ token, user }) {
       if (user?.id) {
         token.id = user.id as string
