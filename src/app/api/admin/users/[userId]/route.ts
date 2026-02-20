@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import bcrypt from 'bcryptjs'
+import { throttle } from '@/lib/rate-limit'
 
 // GET - Get single user (admin only)
 export async function GET(
@@ -99,6 +100,12 @@ export async function PATCH(
       )
     }
 
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@setaruf.com'
+    const baseLimit = 20
+    const limitPerMin = admin.email === adminEmail ? baseLimit * 3 : baseLimit
+    const allowed = await throttle(`admin:${adminUserId}:user-update`, limitPerMin, 60_000)
+    if (!allowed) return NextResponse.json({ error: 'Rate limit. Coba lagi nanti.' }, { status: 429 })
+
     const { userId } = params
     const { name, email, password, isAdmin, isBlocked, isPremium } = await request.json()
 
@@ -159,6 +166,12 @@ export async function DELETE(
         { status: 403 }
       )
     }
+
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@setaruf.com'
+    const baseLimit = 10
+    const limitPerMin = admin.email === adminEmail ? baseLimit * 3 : baseLimit
+    const allowed = await throttle(`admin:${adminUserId}:user-delete`, limitPerMin, 60_000)
+    if (!allowed) return NextResponse.json({ error: 'Rate limit. Coba lagi nanti.' }, { status: 429 })
 
     const { userId } = params
 

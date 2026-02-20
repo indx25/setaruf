@@ -4,7 +4,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { cookies } from 'next/headers'
 import { Resend } from 'resend'
 
 export async function POST(
@@ -12,15 +11,8 @@ export async function POST(
   { params }: { params: { userId: string } }
 ) {
   try {
-    let adminUserId: string | undefined
-    try {
-      const session = await getServerSession(authOptions)
-      adminUserId = (session?.user as any)?.id as string | undefined
-    } catch {}
-    if (!adminUserId) {
-      const cookieStore = await cookies()
-      adminUserId = cookieStore.get('userId')?.value
-    }
+    const session = await getServerSession(authOptions)
+    const adminUserId = (session?.user as any)?.id as string | undefined
     if (!adminUserId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }

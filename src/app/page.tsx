@@ -14,6 +14,7 @@ import { signIn } from 'next-auth/react'
 import { useSearchParams } from 'next/navigation'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Suspense } from 'react'
 
 export default function AuthPage() {
   // Data Fitur (Desktop Only) - Updated Text
@@ -146,31 +147,9 @@ export default function AuthPage() {
                   </p>
                 </div>
                 
-                {(() => {
-                  const params = useSearchParams()
-                  const err = params.get('error')
-                  if (!err) return null
-                  const msg =
-                    err === 'OAuthCreateAccount'
-                      ? 'Login Google gagal membuat akun. Jika email sudah terdaftar, masuk dengan metode yang sama seperti pendaftaran atau hubungi admin.'
-                      : err === 'OAuthAccountNotLinked'
-                      ? 'Email ini sudah terdaftar dengan metode berbeda. Silakan masuk menggunakan Google atau metode yang sama saat pendaftaran. Jika tetap bermasalah, hubungi admin.'
-                      : err === 'Callback'
-                      ? 'Kesalahan callback OAuth. Periksa NEXTAUTH_URL, Client ID/Secret, dan Redirect URL di Google Console.'
-                      : err === 'Configuration'
-                      ? 'Konfigurasi OAuth tidak lengkap. Pastikan NEXTAUTH_SECRET, GOOGLE_CLIENT_ID/SECRET, dan DATABASE_URL terisi.'
-                      : err === 'AccessDenied'
-                      ? 'Akses ditolak oleh provider. Coba ulang atau gunakan metode lain.'
-                      : 'Terjadi kesalahan saat login. Silakan coba lagi.'
-                  return (
-                    <Alert className="bg-rose-50 border-rose-200 text-rose-800">
-                      <AlertDescription>
-                        {msg}
-                        <span className="block mt-1 text-[11px] text-gray-600">Kode: {err}</span>
-                      </AlertDescription>
-                    </Alert>
-                  )
-                })()}
+                <Suspense>
+                  <AuthErrorAlert />
+                </Suspense>
 
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -217,5 +196,31 @@ export default function AuthPage() {
         </div>
       </div>
     </>
+  )
+}
+
+function AuthErrorAlert() {
+  const params = useSearchParams()
+  const err = params.get('error')
+  if (!err) return null
+  const msg =
+    err === 'OAuthCreateAccount'
+      ? 'Login Google gagal membuat akun. Jika email sudah terdaftar, masuk dengan metode yang sama seperti pendaftaran atau hubungi admin.'
+      : err === 'OAuthAccountNotLinked'
+      ? 'Email ini sudah terdaftar dengan metode berbeda. Silakan masuk menggunakan Google atau metode yang sama saat pendaftaran. Jika tetap bermasalah, hubungi admin.'
+      : err === 'Callback'
+      ? 'Kesalahan callback OAuth. Periksa NEXTAUTH_URL, Client ID/Secret, dan Redirect URL di Google Console.'
+      : err === 'Configuration'
+      ? 'Konfigurasi OAuth tidak lengkap. Pastikan NEXTAUTH_SECRET, GOOGLE_CLIENT_ID/SECRET, dan DATABASE_URL terisi.'
+      : err === 'AccessDenied'
+      ? 'Akses ditolak oleh provider. Coba ulang atau gunakan metode lain.'
+      : 'Terjadi kesalahan saat login. Silakan coba lagi.'
+  return (
+    <Alert className="bg-rose-50 border-rose-200 text-rose-800">
+      <AlertDescription>
+        {msg}
+        <span className="block mt-1 text-[11px] text-gray-600">Kode: {err}</span>
+      </AlertDescription>
+    </Alert>
   )
 }

@@ -171,7 +171,7 @@ export default function AdminPage() {
       if (!response.ok) {
         if (typeof window !== 'undefined') {
           const url = new URL(window.location.href)
-          if (url.searchParams.get('preview') === '1') {
+          if (process.env.NODE_ENV !== 'production' && url.searchParams.get('preview') === '1') {
             setIsAdmin(true)
             return
           }
@@ -183,7 +183,7 @@ export default function AdminPage() {
     } catch (err) {
       if (typeof window !== 'undefined') {
         const url = new URL(window.location.href)
-        if (url.searchParams.get('preview') === '1') {
+        if (process.env.NODE_ENV !== 'production' && url.searchParams.get('preview') === '1') {
           setIsAdmin(true)
           return
         }

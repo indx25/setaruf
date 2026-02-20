@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { throttle } from '@/lib/rate-limit'
 
 // POST - Approve or reject payment (admin only)
 export async function POST(
@@ -32,6 +33,12 @@ export async function POST(
       )
     }
 
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@setaruf.com'
+    const baseLimit = 10
+    const limitPerMin = admin.email === adminEmail ? baseLimit * 3 : baseLimit
+    const allowed = await throttle(`admin:${adminUserId}:payment-action`, limitPerMin, 60_000)
+    if (!allowed) return NextResponse.json({ error: 'Rate limit. Coba lagi nanti.' }, { status: 429 })
+
     const { paymentId } = params
     const { action, note } = await request.json()
 
@@ -58,8 +65,10 @@ export async function POST(
 
     if (action === 'approve') {
       // Verify unique code matches
-      const expectedAmount = 50000 + parseInt(payment.uniqueCode)
-      if (payment.amount !== expectedAmount) {
+      const digits = String(payment.uniqueCode || '').replace(/\D/g, '')
+      const codeNum = digits ? parseInt(digits, 10) : NaN
+      const expectedAmount = Number.isFinite(codeNum) ? 50000 + codeNum : null
+      if (expectedAmount === null || payment.amount !== expectedAmount) {
         return NextResponse.json(
           { error: `Jumlah tidak sesuai. Expected: ${expectedAmount}, Received: ${payment.amount}` },
           { status: 400 }
