@@ -1,0 +1,265 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @map("refresh_token")
+  access_token      String? @map("access_token")
+  expires_at        Int?    @map("expires_at")
+  token_type        String? @map("token_type")
+  scope             String?
+  id_token          String? @map("id_token")
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model User {
+  id               String         @id @default(cuid())
+  email            String         @unique
+  password         String?
+  name             String?
+  uniqueCode       String         @unique @default(cuid())
+  image            String?
+  emailVerified    DateTime?
+  dateOfBirth      DateTime?
+  isBlocked        Boolean        @default(false)
+  isPremium        Boolean        @default(false)
+  isAdmin          Boolean        @default(false)
+  avatar           String?
+  workflowStatus   String         @default("biodata")
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  accounts         Account[]
+  sentMatches      Match[]        @relation("SentMatches")
+  receivedMatches  Match[]        @relation("ReceivedMatches")
+  receivedMessages Message[]      @relation("ReceivedMessages")
+  sentMessages     Message[]      @relation("SentMessages")
+  notifications    Notification[]
+  payments         Payment[]
+  profile          Profile?
+  psychotests      PsychoTest[]
+  sessions         Session[]
+  subscriptions    Subscription[]
+
+  @@index([isBlocked])
+  @@index([isPremium])
+}
+
+model Profile {
+  id                     String    @id @default(cuid())
+  userId                 String    @unique
+  fullName               String?
+  initials               String?
+  gender                 String?
+  age                    Int?
+  dateOfBirth            DateTime?
+  placeOfBirth           String?
+  nationality            String?
+  city                   String?
+  province               String?
+  country                String?
+  education              String?
+  occupation             String?
+  company                String?
+  income                 String?
+  workplace              String?
+  height                 Int?
+  weight                 Int?
+  bodyType               String?
+  skinColor              String?
+  faceShape              String?
+  religion               String?
+  religiousLevel         String?
+  prayerFrequency        String?
+  quranAbility           String?
+  maritalStatus          String?
+  childrenCount          Int?      @default(0)
+  fatherName             String?
+  fatherOccupation       String?
+  motherName             String?
+  motherOccupation       String?
+  siblingsCount          Int?
+  hobbies                String?
+  interests              String?
+  preferredAgeMin        Int?
+  preferredAgeMax        Int?
+  preferredEducation     String?
+  preferredOccupation    String?
+  preferredLocation      String?
+  preferredReligionLevel String?
+  healthCondition        String?
+  disabilities           String?
+  photoUrl               String?
+  ktpUrl                 String?
+  aboutMe                String?
+  expectations           String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  instagram              String?
+  whatsapp               String?
+  quote                  String?
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model PsychoTest {
+  id          String   @id @default(cuid())
+  userId      String
+  testType    String
+  score       Float?
+  result      String?
+  answers     String?
+  notes       String?
+  completedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, testType])
+}
+
+model Match {
+  id              String   @id @default(cuid())
+  requesterId     String
+  targetId        String
+  matchPercentage Float?
+  aiReasoning     String?
+  status          String   @default("pending")
+  step            String   @default("profile_request")
+  requesterViewed Boolean  @default(false)
+  targetViewed    Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  requester       User     @relation("SentMatches", fields: [requesterId], references: [id], onDelete: Cascade)
+  target          User     @relation("ReceivedMatches", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, targetId])
+  @@index([requesterId])
+  @@index([targetId])
+  @@index([status, step])
+}
+
+model Message {
+  id         String   @id @default(cuid())
+  senderId   String
+  receiverId String
+  matchId    String?
+  content    String
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  receiver   User     @relation("ReceivedMessages", fields: [receiverId], references: [id], onDelete: Cascade)
+  sender     User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([senderId])
+  @@index([receiverId])
+  @@index([matchId])
+}
+
+model Subscription {
+  id        String    @id @default(cuid())
+  userId    String
+  planType  String
+  amount    Float?
+  duration  Int?
+  startDate DateTime  @default(now())
+  endDate   DateTime?
+  isActive  Boolean   @default(true)
+  isTrial   Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isActive])
+}
+
+model Payment {
+  id            String    @id @default(cuid())
+  userId        String
+  uniqueCode    String    @unique
+  amount        Float
+  paymentMethod String
+  bankName      String
+  accountName   String
+  accountNumber String
+  proofUrl      String?
+  status        String    @default("pending")
+  adminNote     String?
+  approvedBy    String?
+  approvedAt    DateTime?
+  rejectedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  message   String
+  link      String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+model Advertisement {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  imageUrl    String?
+  linkUrl     String?
+  position    String
+  isActive    Boolean   @default(true)
+  startDate   DateTime  @default(now())
+  endDate     DateTime?
+  clicks      Int       @default(0)
+  views       Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Settings {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
