@@ -29,6 +29,17 @@ export async function POST(request: NextRequest) {
       if (u.protocol !== 'https:') {
         return NextResponse.json({ error: 'URL bukti harus HTTPS' }, { status: 400 })
       }
+      const allowed = (process.env.ALLOWED_PROOF_HOSTS || '')
+        .split(',')
+        .map(s => s.trim().toLowerCase())
+        .filter(Boolean)
+      if (allowed.length > 0) {
+        const host = u.hostname.toLowerCase()
+        const ok = allowed.some(h => host === h || host.endsWith(`.${h}`))
+        if (!ok) {
+          return NextResponse.json({ error: 'Domain URL bukti tidak diizinkan' }, { status: 400 })
+        }
+      }
     } catch {
       return NextResponse.json({ error: 'URL bukti tidak valid' }, { status: 400 })
     }
