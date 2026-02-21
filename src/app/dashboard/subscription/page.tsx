@@ -309,18 +309,22 @@ export default function SubscriptionPage() {
                          preferredBank === 'OCBC' ? '4445556667' :
                          '7778889990')}
                       </p>
+                      <Button
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6"
-                        onClick={() => copyToClipboard('1084421955')}
-                        onClick={() => copyToClipboard(
-                          pendingPayment?.accountNumber || (preferredBank === 'BCA' ? '1084421955' :
-                          preferredBank === 'MANDIRI' ? '1234567890' :
-                          preferredBank === 'BRI' ? '9876543210' :
-                          preferredBank === 'BNI' ? '1112223334' :
-                          preferredBank === 'OCBC' ? '4445556667' :
-                          '7778889990')
-                        )}
+                        onClick={() =>
+                          copyToClipboard(
+                            pendingPayment?.accountNumber ||
+                              (preferredBank === 'BCA' ? '1084421955'
+                                : preferredBank === 'MANDIRI' ? '1234567890'
+                                : preferredBank === 'BRI' ? '9876543210'
+                                : preferredBank === 'BNI' ? '1112223334'
+                                : preferredBank === 'OCBC' ? '4445556667'
+                                : '7778889990')
+                          )
+                        }
+                      >
                         <Copy className="w-4 h-4" />
                       </Button>
                     </div>
@@ -341,31 +345,31 @@ export default function SubscriptionPage() {
                   </AlertDescription>
                 </Alert>
               ) : (
-                <Button
-                <>
-                <div>
-                  <Label>Pilih Bank</Label>
-                  <select
-                    value={preferredBank}
-                    onChange={(e) => setPreferredBank(e.target.value)}
-                    className="border rounded-md px-3 py-2 text-sm w-full mt-1"
+                <div className="space-y-3">
+                  <div>
+                    <Label>Pilih Bank</Label>
+                    <select
+                      value={preferredBank}
+                      onChange={(e) => setPreferredBank(e.target.value)}
+                      className="border rounded-md px-3 py-2 text-sm w-full mt-1"
+                    >
+                      <option value="BCA">BCA</option>
+                      <option value="MANDIRI">MANDIRI</option>
+                      <option value="BRI">BRI</option>
+                      <option value="BNI">BNI</option>
+                      <option value="OCBC">OCBC</option>
+                      <option value="SINARMAS">SINARMAS</option>
+                    </select>
+                  </div>
+                  <Button
+                    onClick={handleCreatePayment}
+                    className="w-full bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600"
                   >
-                    <option value="BCA">BCA</option>
-                    <option value="MANDIRI">MANDIRI</option>
-                    <option value="BRI">BRI</option>
-                    <option value="BNI">BNI</option>
-                    <option value="OCBC">OCBC</option>
-                    <option value="SINARMAS">SINARMAS</option>
-                  </select>
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Buat Payment Baru
+                  </Button>
                 </div>
-                  onClick={handleCreatePayment}
-                  className="w-full bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600"
-                >
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  Buat Payment Baru
-                </Button>
               )}
-                </>
             </div>
           </CardContent>
         </Card>
