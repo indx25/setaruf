@@ -103,5 +103,8 @@
   },
   "prisma": {
     "seed": "ts-node --transpile-only prisma/seed.ts"
+  },
+  "engines": {
+    "node": ">=18.18.0"
   }
 }
