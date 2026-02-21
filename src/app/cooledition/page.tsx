@@ -67,6 +67,22 @@ export default function AdminPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [seedLoading, setSeedLoading] = useState(false)
   const [seedInfo, setSeedInfo] = useState<any>(null)
+  const [cleanupLoading, setCleanupLoading] = useState(false)
+  const [cleanupResult, setCleanupResult] = useState<any>(null)
+  const [cleanupLimit, setCleanupLimit] = useState('1000')
+  // Normalize Profiles
+  const [normLoading, setNormLoading] = useState(false)
+  const [normResult, setNormResult] = useState<any>(null)
+  const [normLimit, setNormLimit] = useState('1000')
+  // Precompute Traits
+  const [precompLoading, setPrecompLoading] = useState(false)
+  const [precompResult, setPrecompResult] = useState<any>( sue => null )
+  const [precompTake, setPrecompTake] = useState('200')
+  const [precompCursor, setPrecompCursor] = useState<string | null>(null)
+  // Backfill PairKey
+  const [pairLoading, setPairLoading] = useState(false)
+  const [pairResult, setPairResult] = useState<any>(null)
+  const [pairLimit, setPairLimit] = useState('1000')
   const getInitials = (name?: string | null) => {
     if (!name) return ''
     return name.split(' ').map(n => n[0]?.toUpperCase() || '').join('').slice(0, 2)
@@ -100,6 +116,7 @@ export default function AdminPage() {
   const [userMinAge, setUserMinAge] = useState('')
   const [userMaxAge, setUserMaxAge] = useState('')
   const [paymentDays, setPaymentDays] = useState('30')
+  const [paymentFraud, setPaymentFraud] = useState('')
   const [logType, setLogType] = useState('')
   const [logAction, setLogAction] = useState('')
   const [logQ, setLogQ] = useState('')
@@ -282,6 +299,7 @@ export default function AdminPage() {
       const params = new URLSearchParams()
       if (paymentFilter) params.set('status', paymentFilter)
       if (paymentDays) params.set('days', paymentDays)
+      if (paymentFraud) params.set('fraudLevel', paymentFraud)
       const url = `/api/admin/payments?${params.toString()}`
       const response = await fetch(url)
       const data = await response.json()
@@ -911,6 +929,71 @@ export default function AdminPage() {
                 )}
               </CardContent>
             </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Maintenance</CardTitle>
+                <CardDescription>Cleanup match pending → suggested</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="cleanupLimit" className="text-sm">Limit</Label>
+                  <Input id="cleanupLimit" value={cleanupLimit} onChange={(e)=>setCleanupLimit(e.target.value)} className="w-28" />
+                  <Button
+                    variant="outline"
+                    disabled={cleanupLoading}
+                    onClick={async ()=>{
+                      setCleanupLoading(true)
+                      setCleanupResult(null)
+                      try{
+                        const res = await fetch('/api/admin/cleanup-matches', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ dryRun:true, limit: parseInt(cleanupLimit)||1000 }) })
+                        const json = await res.json()
+                        setCleanupResult(json)
+                      } catch {
+                        setCleanupResult({ error: 'Terjadi kesalahan jaringan' })
+                      } finally {
+                        setCleanupLoading(false)
+                      }
+                    }}
+                  >
+                    {cleanupLoading ? 'Memproses...' : 'Dry‑Run'}
+                  </Button>
+                  <Button
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    disabled={cleanupLoading}
+                    onClick={async ()=>{
+                      if(!confirm('Jalankan cleanup? Ini akan mengubah data.')) return
+                      setCleanupLoading(true)
+                      setCleanupResult(null)
+                      try{
+                        const res = await fetch('/api/admin/cleanup-matches', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ dryRun:false, limit: parseInt(cleanupLimit)||1000 }) })
+                        const json = await res.json()
+                        setCleanupResult(json)
+                      } catch {
+                        setCleanupResult({ error: 'Terjadi kesalahan jaringan' })
+                      } finally {
+                        setCleanupLoading(false)
+                      }
+                    }}
+                  >
+                    {cleanupLoading ? 'Memproses...' : 'Apply'}
+                  </Button>
+                </div>
+                {cleanupResult && (
+                  <div className="text-xs border rounded p-2 bg-gray-50">
+                    {'error' in cleanupResult ? (
+                      <span className="text-red-600">{cleanupResult.error}</span>
+                    ) : (
+                      <div className="space-y-1">
+                        <div>Total: <strong>{cleanupResult.total ?? 0}</strong></div>
+                        <div>Updated: <strong className="text-emerald-700">{cleanupResult.updated ?? 0}</strong></div>
+                        <div>Mode: <span className="uppercase">{cleanupResult.dryRun ? 'DRY-RUN' : 'APPLY'}</span></div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </TabsContent>
 
           {/* Insight Tab */}
@@ -1457,6 +1540,16 @@ export default function AdminPage() {
                       <option value="30">30 Hari</option>
                       <option value="90">90 Hari</option>
                     </select>
+                    <select
+                      value={paymentFraud}
+                      onChange={(e) => setPaymentFraud(e.target.value)}
+                      className="border rounded-md px-3 py-2 text-sm"
+                    >
+                      <option value="">All Fraud</option>
+                      <option value="SAFE">SAFE</option>
+                      <option value="MEDIUM">MEDIUM</option>
+                      <option value="HIGH">HIGH</option>
+                    </select>
                     <div className="flex items-center gap-2">
                       <Button variant="outline" onClick={loadPayments}>
                         <RefreshCw className="w-4 h-4 mr-2" />
@@ -1467,10 +1560,35 @@ export default function AdminPage() {
                         onClick={() => {
                           setPaymentFilter('')
                           setPaymentDays('30')
+                          setPaymentFraud('')
                           loadPayments()
                         }}
                       >
                         Reset
+                      </Button>
+                      <Button
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                        onClick={async () => {
+                          if (!confirm('Approve massal semua payment SAFE (pending)?')) return
+                          try {
+                            const res = await fetch('/api/admin/payments/bulk-approve-safe', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ limit: 100 })
+                            })
+                            const data = await res.json()
+                            if (!res.ok) {
+                              alert(data.error || 'Gagal bulk approve')
+                            } else {
+                              alert(`Diproses: ${data.processed}, Approved: ${data.approved}, Skipped: ${data.skipped}`)
+                              await loadPayments()
+                            }
+                          } catch (e: any) {
+                            alert(e.message || 'Error bulk approve')
+                          }
+                        }}
+                      >
+                        Approve SAFE (Bulk)
                       </Button>
                     </div>
                   </div>
@@ -1484,6 +1602,7 @@ export default function AdminPage() {
                       <TableHead>Amount</TableHead>
                       <TableHead>Unique Code</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Fraud</TableHead>
                       <TableHead>Date</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
@@ -1512,6 +1631,23 @@ export default function AdminPage() {
                           }>
                             {payment.status}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {payment.fraudLevel ? (
+                            <div className="flex items-center gap-2">
+                              <Badge className={
+                                payment.fraudLevel === 'HIGH' ? 'bg-red-600' :
+                                payment.fraudLevel === 'MEDIUM' ? 'bg-yellow-600' : 'bg-green-600'
+                              }>
+                                {payment.fraudLevel}
+                              </Badge>
+                              {typeof payment.fraudScore === 'number' && (
+                                <span className="text-xs text-gray-600">Score {payment.fraudScore}</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400">-</span>
+                          )}
                         </TableCell>
                         <TableCell>
                           {new Date(payment.createdAt).toLocaleDateString('id-ID')}
@@ -1558,6 +1694,128 @@ export default function AdminPage() {
                 <CardDescription>Configure platform settings</CardDescription>
               </CardHeader>
               <CardContent>
+                <div className="flex items-center justify-between mb-4">
+                  <div className="text-sm text-gray-600">
+                    Normalisasi Profile (gender/agama) ke format konsisten di DB untuk memaksimalkan performa indeks.
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="normLimit" className="text-sm">Limit</Label>
+                    <Input id="normLimit" value={normLimit} onChange={(e)=>setNormLimit(e.target.value)} className="w-28" />
+                    <Button
+                      variant="outline"
+                      disabled={normLoading}
+                      onClick={async ()=>{
+                        setNormLoading(true)
+                        setNormResult(null)
+                        try{
+                          const res = await fetch('/api/admin/normalize-profiles', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ dryRun:true, limit: parseInt(normLimit)||1000 }) })
+                          const json = await res.json()
+                          setNormResult(json)
+                        } catch {
+                          setNormResult({ error: 'Terjadi kesalahan jaringan' })
+                        } finally {
+                          setNormLoading(false)
+                        }
+                      }}
+                    >
+                      {normLoading ? 'Memproses...' : 'Dry‑Run'}
+                    </Button>
+                    <Button
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                      disabled={normLoading}
+                      onClick={async ()=>{
+                        if(!confirm('Jalankan normalisasi? Data gender/agama akan ditulis ulang.')) return
+                        setNormLoading(true)
+                        setNormResult(null)
+                        try{
+                          const res = await fetch('/api/admin/normalize-profiles', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ dryRun:false, limit: parseInt(normLimit)||1000 }) })
+                          const json = await res.json()
+                          setNormResult(json)
+                        } catch {
+                          setNormResult({ error: 'Terjadi kesalahan jaringan' })
+                        } finally {
+                          setNormLoading(false)
+                        }
+                      }}
+                    >
+                      {normLoading ? 'Memproses...' : 'Apply'}
+                    </Button>
+                  </div>
+                </div>
+                {normResult && (
+                  <div className="text-xs border rounded p-2 bg-gray-50 mb-4">
+                    {'error' in normResult ? (
+                      <span className="text-red-600">{normResult.error}</span>
+                    ) : (
+                      <div className="space-y-1">
+                        {'toFix' in normResult && <div>To Fix: <strong>{normResult.toFix ?? 0}</strong></div>}
+                        <div>Total: <strong>{normResult.total ?? 0}</strong></div>
+                        <div>Updated: <strong className="text-emerald-700">{normResult.updated ?? 0}</strong></div>
+                        <div>Mode: <span className="uppercase">{normResult.dryRun ? 'DRY-RUN' : 'APPLY'}</span></div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between mb-4">
+                  <div className="text-sm text-gray-600">
+                    Precompute Trait Vector (batch) agar route rekomendasi realtime tidak menghitung ulang.
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="precompTake" className="text-sm">Take</Label>
+                    <Input id="precompTake" value={precompTake} onChange={(e)=>setPrecompTake(e.target.value)} className="w-24" />
+                    <Button
+                      variant="outline"
+                      disabled={precompLoading}
+                      onClick={async ()=>{
+                        setPrecompLoading(true)
+                        try{
+                          const qs = new URLSearchParams()
+                          qs.set('take', String(parseInt(precompTake)||200))
+                          if(precompCursor) qs.set('cursor', precompCursor)
+                          const res = await fetch(`/api/admin/precompute-traits?${qs.toString()}`, { method:'POST' })
+                          const json = await res.json()
+                          setPrecompResult(json)
+                          setPrecompCursor(json.nextCursor || null)
+                        } catch {
+                          setPrecompResult({ error: 'Terjadi kesalahan jaringan' })
+                        } finally {
+                          setPrecompLoading(false)
+                        }
+                      }}
+                    >
+                      {precompLoading ? 'Memproses...' : (precompCursor ? 'Lanjut Batch' : 'Jalankan Batch')}
+                    </Button>
+                    {precompCursor && (
+                      <Button
+                        variant="ghost"
+                        disabled={precompLoading}
+                        onClick={()=>{
+                          setPrecompCursor(null)
+                          setPrecompResult(null)
+                        }}
+                      >
+                        Reset Cursor
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                {precompResult && (
+                  <div className="text-xs border rounded p-2 bg-gray-50 mb-4">
+                    {'error' in precompResult ? (
+                      <span className="text-red-600">{precompResult.error}</span>
+                    ) : (
+                      <div className="space-y-1">
+                        <div>Processed: <strong>{precompResult.processed ?? 0}</strong></div>
+                        {'updatedCount' in precompResult && <div>Updated: <strong className="text-emerald-700">{precompResult.updatedCount ?? 0}</strong></div>}
+                        {'skippedFresh' in precompResult && <div>Skipped: <strong>{precompResult.skippedFresh ?? 0}</strong></div>}
+                        {'staleCandidates' in precompResult && <div>Stale: <strong>{precompResult.staleCandidates ?? 0}</strong></div>}
+                        {'lastBatchDurationMs' in precompResult && <div>Duration: <strong>{precompResult.lastBatchDurationMs ?? 0}ms</strong></div>}
+                        <div>Next Cursor: <strong>{precompResult.nextCursor || '-'}</strong></div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="flex items-center justify-between mb-4">
                   <div className="text-sm text-gray-600">
                     Reset database terkait user (tidak mempengaruhi sistem). Admin tersisa dan tidak direset.
@@ -1620,6 +1878,70 @@ export default function AdminPage() {
                     Settings panel coming soon. For now, you can manage users and payments.
                   </AlertDescription>
                 </Alert>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Maintenance Lanjutan</CardTitle>
+                <CardDescription>Backfill PairKey untuk kecepatan query dan anti-duplikasi.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-2 mb-3">
+                  <Label htmlFor="pairLimit" className="text-sm">Limit</Label>
+                  <Input id="pairLimit" value={pairLimit} onChange={(e)=>setPairLimit(e.target.value)} className="w-28" />
+                  <Button
+                    variant="outline"
+                    disabled={pairLoading}
+                    onClick={async ()=>{
+                      setPairLoading(true)
+                      setPairResult(null)
+                      try{
+                        const res = await fetch('/api/admin/backfill-pairkey', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ dryRun:true, limit: parseInt(pairLimit)||1000 }) })
+                        const json = await res.json()
+                        setPairResult(json)
+                      } catch {
+                        setPairResult({ error: 'Terjadi kesalahan jaringan' })
+                      } finally {
+                        setPairLoading(false)
+                      }
+                    }}
+                  >
+                    {pairLoading ? 'Memproses...' : 'Dry‑Run'}
+                  </Button>
+                  <Button
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                    disabled={pairLoading}
+                    onClick={async ()=>{
+                      if(!confirm('Jalankan backfill PairKey?')) return
+                      setPairLoading(true)
+                      setPairResult(null)
+                      try{
+                        const res = await fetch('/api/admin/backfill-pairkey', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ dryRun:false, limit: parseInt(pairLimit)||1000 }) })
+                        const json = await res.json()
+                        setPairResult(json)
+                      } catch {
+                        setPairResult({ error: 'Terjadi kesalahan jaringan' })
+                      } finally {
+                        setPairLoading(false)
+                      }
+                    }}
+                  >
+                    {pairLoading ? 'Memproses...' : 'Apply'}
+                  </Button>
+                </div>
+                {pairResult && (
+                  <div className="text-xs border rounded p-2 bg-gray-50">
+                    {'error' in pairResult ? (
+                      <span className="text-red-600">{pairResult.error}</span>
+                    ) : (
+                      <div className="space-y-1">
+                        <div>Total: <strong>{pairResult.total ?? 0}</strong></div>
+                        <div>Updated: <strong className="text-emerald-700">{pairResult.updated ?? 0}</strong></div>
+                        <div>Mode: <span className="uppercase">{pairResult.dryRun ? 'DRY-RUN' : 'APPLY'}</span></div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -2033,6 +2355,40 @@ export default function AdminPage() {
                         </p>
                       )
                     })()}
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Detected Bank</p>
+                    <p className="font-medium">{selectedPayment.bankDetected || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">OCR Amount</p>
+                    <p className="font-medium">
+                      {typeof selectedPayment.ocrAmount === 'number' ? `Rp ${selectedPayment.ocrAmount.toLocaleString('id-ID')}` : '-'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">OCR Account</p>
+                    <p className="font-medium">{selectedPayment.ocrAccount || '-'}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Fraud</p>
+                    <div className="flex items-center gap-2">
+                      {selectedPayment.fraudLevel ? (
+                        <Badge className={
+                          selectedPayment.fraudLevel === 'HIGH' ? 'bg-red-600' :
+                          selectedPayment.fraudLevel === 'MEDIUM' ? 'bg-yellow-600' : 'bg-green-600'
+                        }>
+                          {selectedPayment.fraudLevel}
+                        </Badge>
+                      ) : <span className="text-xs text-gray-400">-</span>}
+                      {typeof selectedPayment.fraudScore === 'number' && (
+                        <span className="text-xs text-gray-600">Score {selectedPayment.fraudScore}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Decision</p>
+                    <p className="font-medium">{selectedPayment.autoDecision || '-'}</p>
                   </div>
                 </div>
               </div>

@@ -1,129 +1,83 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { db } from '@/lib/db'
 
-// GET - Load all psychotest results
-export async function GET(request: NextRequest) {
+const ALLOWED_TYPES = new Set(['pre_marriage', 'disc', 'clinical', '16pf'])
+
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n))
+}
+
+export async function GET() {
+  const session = await getServerSession(authOptions)
+  const me = session?.user as any
+  if (!me?.id) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   try {
-    const session = await getServerSession(authOptions)
-    const userId = (session?.user as any)?.id as string | undefined
-
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      )
-    }
-
     const tests = await db.psychoTest.findMany({
-      where: { userId }
+      where: { userId: me.id },
+      orderBy: { createdAt: 'desc' },
+      select: { testType: true, score: true, result: true }
     })
-
-    return NextResponse.json({ tests })
-
-  } catch (error) {
-    console.error('Get psychotest error:', error)
-    return NextResponse.json(
-      { error: 'Terjadi kesalahan saat mengambil hasil psikotes' },
-      { status: 500 }
-    )
+    return NextResponse.json({
+      tests: tests.map(t => ({
+        testType: t.testType,
+        score: typeof t.score === 'number' ? clamp(t.score, 0, 100) : 0,
+        result: t.result || ''
+      }))
+    })
+  } catch (e) {
+    console.error('Psychotest GET error:', e)
+    return NextResponse.json({ error: 'Failed to load tests' }, { status: 500 })
   }
 }
 
-// POST - Save psychotest result
-export async function POST(request: NextRequest) {
+export async function POST(req: NextRequest) {
+  const session = await getServerSession(authOptions)
+  const me = session?.user as any
+  if (!me?.id) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  let body: any
   try {
-    const session = await getServerSession(authOptions)
-    const userId = (session?.user as any)?.id as string | undefined
-
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      )
-    }
-
-    const { testType, score, result, answers } = await request.json()
-
-    // Check if test already exists
-    const existingTest = await db.psychoTest.findFirst({
-      where: {
-        userId,
-        testType
-      }
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+  const testType = String(body?.testType || '')
+  if (!ALLOWED_TYPES.has(testType)) {
+    return NextResponse.json({ error: 'Invalid testType' }, { status: 400 })
+  }
+  const scoreNum = clamp(Number(body?.score ?? 0), 0, 100)
+  const result = String(body?.result || '')
+  const answers = body?.answers ? JSON.stringify(body.answers) : JSON.stringify({})
+  try {
+    const existing = await db.psychoTest.findFirst({
+      where: { userId: me.id, testType }
     })
-
-    let psychotest
-
-    if (existingTest) {
-      // Update existing test
-      psychotest = await db.psychoTest.update({
-        where: { id: existingTest.id },
-        data: {
-          score,
-          result,
-          answers: JSON.stringify(answers),
-          completedAt: new Date(),
-        }
-      })
-    } else {
-      // Create new test
-      psychotest = await db.psychoTest.create({
-        data: {
-          userId,
-          testType,
-          score,
-          result,
-          answers: JSON.stringify(answers),
-          completedAt: new Date(),
-        }
-      })
-    }
-
-    // Check if all 4 tests are completed
-    const allTests = await db.psychoTest.findMany({
-      where: { userId },
-      select: { testType: true }
-    })
-
-    const completedTypes = new Set(allTests.map(t => t.testType))
-    const allCompleted = completedTypes.has('pre_marriage') &&
-                       completedTypes.has('disc') &&
-                       completedTypes.has('clinical') &&
-                       completedTypes.has('16pf')
-
-    // If all tests completed, update user workflow status
-    if (allCompleted) {
-      await db.user.update({
-        where: { id: userId },
-        data: { workflowStatus: 'matching' }
-      })
-
-      // Create notification
-      await db.notification.create({
-        data: {
-          userId,
-          type: 'psychotest_completed',
-          title: 'Psikotes Selesai!',
-          message: 'Selamat! Anda telah menyelesaikan semua psikotes. Silakan cek dashboard untuk rekomendasi pasangan.',
-          link: '/dashboard'
-        }
-      })
-    }
+    const saved = existing
+      ? await db.psychoTest.update({
+          where: { id: existing.id },
+          data: { score: scoreNum, result, answers, completedAt: new Date() }
+        })
+      : await db.psychoTest.create({
+          data: { userId: me.id, testType, score: scoreNum, result, answers, completedAt: new Date() }
+        })
 
     return NextResponse.json({
-      success: true,
-      message: 'Psikotes berhasil disimpan',
-      psychotest,
-      allCompleted
+      ok: true,
+      test: {
+        id: saved.id,
+        testType: saved.testType,
+        score: saved.score ?? 0,
+        result: saved.result || ''
+      }
     })
-
-  } catch (error) {
-    console.error('Save psychotest error:', error)
-    return NextResponse.json(
-      { error: 'Terjadi kesalahan saat menyimpan psikotes' },
-      { status: 500 }
-    )
+  } catch (e) {
+    console.error('Psychotest POST error:', e)
+    return NextResponse.json({ error: 'Failed to save test' }, { status: 500 })
   }
 }
+

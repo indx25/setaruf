@@ -1,8 +1,10 @@
+export const runtime = 'nodejs'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import * as logger from '@/lib/logger'
+import { runEnterpriseFraudCheck } from '@/lib/fraud/bankFraudEngine'
 
 // Upload payment proof
 export async function POST(request: NextRequest) {
@@ -51,21 +53,64 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const payment = await db.payment.update({
-      where: {
-        id: paymentId,
-        userId
-      },
-      data: {
+    const result = await db.$transaction(async (tx) => {
+      const payment = await tx.payment.update({
+        where: { id: paymentId, userId },
+        data: { proofUrl }
+      })
+      const fraud = await runEnterpriseFraudCheck({
         proofUrl,
+        expectedAmount: payment.amount,
+        expectedBank: payment.bankName,
+        userId,
+        paymentId,
+        db: tx
+      })
+      let updatedStatus = payment.status
+      let approvedBy: string | null = null
+      let approvedAt: Date | null = null
+      if (fraud.decision === 'AUTO_APPROVE') {
+        updatedStatus = 'approved'
+        approvedBy = 'system'
+        approvedAt = new Date()
+      } else {
+        updatedStatus = 'pending'
       }
+      const updatedPayment = await tx.payment.update({
+        where: { id: paymentId },
+        data: {
+          imageHash: fraud.imageHash,
+          bankDetected: fraud.bankDetected,
+          ocrAmount: fraud.extractedAmount,
+          ocrAccount: fraud.extractedAccount,
+          fraudScore: fraud.fraudScore,
+          fraudLevel: fraud.fraudLevel,
+          autoDecision: fraud.decision,
+          status: updatedStatus,
+          approvedBy: approvedBy || undefined,
+          approvedAt: approvedAt || undefined
+        }
+      })
+      if (updatedStatus === 'approved') {
+        await tx.user.update({ where: { id: payment.userId }, data: { isPremium: true } })
+        const existingSub = await tx.subscription.findFirst({ where: { userId: payment.userId, isActive: true } })
+        if (existingSub) {
+          const currentEnd = new Date(existingSub.endDate || new Date())
+          currentEnd.setMonth(currentEnd.getMonth() + 1)
+          await tx.subscription.update({ where: { id: existingSub.id }, data: { endDate: currentEnd } })
+        } else {
+          const start = new Date()
+          const end = new Date()
+          end.setMonth(end.getMonth() + 1)
+          await tx.subscription.create({
+            data: { userId: payment.userId, planType: 'premium', amount: payment.amount || 0, duration: 1, startDate: start, endDate: end, isActive: true, isTrial: false }
+          })
+        }
+      }
+      return updatedPayment
     })
 
-    return NextResponse.json({
-      success: true,
-      message: 'Bukti transfer berhasil diupload. Mohon tunggu approval 1x24 jam.',
-      payment
-    })
+    return NextResponse.json({ success: true, message: 'Bukti transfer diproses', payment: result })
 
   } catch (error) {
     const cid = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`

@@ -51,7 +51,7 @@ export async function POST(
       where: { id: matchId },
       data: {
         status: 'rejected',
-        step: 'profile_request',
+        step: 'rejected',
       },
     })
 

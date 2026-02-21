@@ -41,10 +41,13 @@ export async function GET(request: NextRequest) {
     const page = parseInt(searchParams.get('page') || '1')
     const limit = parseInt(searchParams.get('limit') || '20')
     const status = searchParams.get('status') || ''
+    const fraudLevel = searchParams.get('fraudLevel') || ''
     const daysParam = parseInt(searchParams.get('days') || '')
     const days = !isNaN(daysParam) ? Math.min(Math.max(daysParam, 1), 365) : null
 
-    const where: any = status ? { status } : {}
+    const where: any = {}
+    if (status) where.status = status
+    if (fraudLevel) where.fraudLevel = fraudLevel
     if (days) {
       const start = new Date()
       start.setDate(start.getDate() - days)

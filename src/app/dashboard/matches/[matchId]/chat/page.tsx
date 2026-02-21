@@ -195,9 +195,11 @@ export default function ChatPage() {
   }
 
   // Get initials
-  const getInitials = (name: string) => {
+  const getInitials = (name?: string | null) => {
     if (!name) return 'U'
-    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+    const parts = String(name).trim().split(/\s+/).filter(Boolean)
+    const initials = parts.slice(0, 2).map(p => p[0]?.toUpperCase() || '').join('')
+    return initials || 'U'
   }
 
   if (isLoading) {
@@ -255,7 +257,7 @@ export default function ChatPage() {
         <div className="flex-1">
           <h2 className="font-semibold">{otherUserInitials}</h2>
           <div className="flex items-center gap-2 text-sm text-gray-500">
-            {otherUser.profile?.occupation && <span>{otherUser.profile.occupation}</span>}
+            {otherUser.profile?.occupation && <span>{otherUser.profile?.occupation}</span>}
             {isConnected && <span className="text-green-500">• Online</span>}
             {!isConnected && <span className="text-gray-400">• Offline</span>}
           </div>

@@ -2,121 +2,131 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { enforceRateLimit } from '@/lib/rateLimit'
+import { ensureIdempotency } from '@/lib/idempotency'
 
-// POST /api/matches/[matchId]/approve-full-biodata - Approve full biodata view
+const ALLOWED_STEPS = ['full_data_requested', 'full_data_approved']
+
 export async function POST(
   request: NextRequest,
   { params }: { params: { matchId: string } }
 ) {
+  const cid = crypto.randomUUID()
   try {
     const session = await getServerSession(authOptions)
-    const userId = (session?.user as any)?.id as string | undefined
-
+    const userId = (session?.user as { id?: string } | undefined)?.id
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-
     const matchId = params.matchId
+    if (!matchId) {
+      return NextResponse.json({ error: 'Invalid match ID' }, { status: 400 })
+    }
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || undefined
+    const idem = request.headers.get('x-idempotency-key')
+    await ensureIdempotency(idem, userId)
+    await enforceRateLimit(userId, ip)
 
-    // Fetch match
-    const match = await db.match.findUnique({
-      where: { id: matchId },
-      include: {
-        requester: true,
-        target: true,
-      },
+    const result = await db.$transaction(async (tx) => {
+      const match = await tx.match.findUnique({
+        where: { id: matchId },
+        select: {
+          id: true,
+          status: true,
+          step: true,
+          requesterId: true,
+          targetId: true,
+          requesterViewed: true,
+          targetViewed: true
+        }
+      })
+      if (!match) {
+        const e: any = new Error('NOT_FOUND')
+        e.code = 'NOT_FOUND'
+        throw e
+      }
+      if (match.requesterId !== userId && match.targetId !== userId) {
+        const e: any = new Error('FORBIDDEN')
+        e.code = 'FORBIDDEN'
+        throw e
+      }
+      if (!ALLOWED_STEPS.includes(match.step)) {
+        const e: any = new Error('INVALID_STAGE')
+        e.code = 'INVALID_STAGE'
+        throw e
+      }
+      const isRequester = match.requesterId === userId
+      const alreadyApproved = isRequester ? match.requesterViewed : match.targetViewed
+      if (alreadyApproved) {
+        return { type: 'ALREADY_APPROVED' as const, match: { id: match.id, status: match.status, step: match.step } }
+      }
+      await tx.match.updateMany({
+        where: { id: matchId, ...(isRequester ? { requesterViewed: false } : { targetViewed: false }) },
+        data: { requesterViewed: isRequester ? true : match.requesterViewed, targetViewed: isRequester ? match.targetViewed : true, updatedAt: new Date() }
+      })
+      const after = await tx.match.findUnique({
+        where: { id: matchId },
+        select: { id: true, status: true, step: true, requesterId: true, targetId: true, requesterViewed: true, targetViewed: true }
+      })
+      if (!after) {
+        const e: any = new Error('NOT_FOUND')
+        e.code = 'NOT_FOUND'
+        throw e
+      }
+      if (after.requesterViewed && after.targetViewed) {
+        const finalMatch = await tx.match.update({
+          where: { id: matchId },
+          data: { step: 'full_data_approved', status: 'chatting', updatedAt: new Date() },
+          select: { id: true, status: true, step: true, requesterId: true, targetId: true }
+        })
+        await tx.notification.createMany({
+          data: [
+            {
+              userId: finalMatch.requesterId,
+              type: 'full_data_approved',
+              title: 'Biodata Lengkap Disetujui',
+              message: 'Kedua belah pihak menyetujui biodata lengkap. Chat tersedia.',
+              link: `/dashboard/matches/${matchId}`,
+              dedupeKey: `full_data_approved:${matchId}:${finalMatch.requesterId}`
+            },
+            {
+              userId: finalMatch.targetId,
+              type: 'full_data_approved',
+              title: 'Biodata Lengkap Disetujui',
+              message: 'Kedua belah pihak menyetujui biodata lengkap. Chat tersedia.',
+              link: `/dashboard/matches/${matchId}`,
+              dedupeKey: `full_data_approved:${matchId}:${finalMatch.targetId}`
+            }
+          ]
+        })
+        return { type: 'BOTH_APPROVED' as const, match: { id: finalMatch.id, status: finalMatch.status, step: finalMatch.step } }
+      }
+      return { type: 'WAITING_OTHER' as const, match: { id: after.id, status: after.status, step: after.step } }
     })
 
-    if (!match) {
+    if (result.type === 'ALREADY_APPROVED') {
+      return NextResponse.json({ message: 'You have already approved full biodata view' }, { headers: { 'X-Request-ID': cid } })
+    }
+    if (result.type === 'BOTH_APPROVED') {
+      return NextResponse.json({ message: 'Full biodata approved by both users. Chat is now available!', match: result.match }, { headers: { 'X-Request-ID': cid } })
+    }
+    return NextResponse.json({ message: 'Full biodata approved. Waiting for the other party.', match: result.match }, { headers: { 'X-Request-ID': cid } })
+  } catch (error: any) {
+    if (error?.code === 'NOT_FOUND') {
       return NextResponse.json({ error: 'Match not found' }, { status: 404 })
     }
-
-    // Check if the user is part of this match
-    if (match.requesterId !== userId && match.targetId !== userId) {
+    if (error?.code === 'FORBIDDEN') {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
-
-    // Only allow full biodata approval in full_data_requested or full_data_approved stage
-    if (
-      match.step !== 'full_data_requested' &&
-      match.step !== 'full_data_approved'
-    ) {
+    if (error?.code === 'INVALID_STAGE') {
       return NextResponse.json({ error: 'Cannot approve full biodata at this stage' }, { status: 400 })
     }
-
-    // Check if user already approved
-    if (match.requesterId === userId && match.requesterViewed) {
-      return NextResponse.json({ message: 'You have already approved full biodata view' })
+    if (error?.code === 'RATE_LIMITED') {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
     }
-    if (match.targetId === userId && match.targetViewed) {
-      return NextResponse.json({ message: 'You have already approved full biodata view' })
+    if (error?.code === 'IDEMPOTENT') {
+      return NextResponse.json({ message: 'Already processed' }, { status: 200 })
     }
-
-    // Update the user's approval status
-    const updateData: any = {}
-    if (match.requesterId === userId) {
-      updateData.requesterViewed = true
-    } else {
-      updateData.targetViewed = true
-    }
-
-    const updatedMatch = await db.match.update({
-      where: { id: matchId },
-      data: updateData,
-    })
-
-    // Check if both users have approved
-    if (updatedMatch.requesterViewed && updatedMatch.targetViewed) {
-      // Both approved, update step to full_data_approved and status to chatting
-      await db.match.update({
-        where: { id: matchId },
-        data: {
-          step: 'full_data_approved',
-          status: 'chatting',
-        },
-      })
-
-      // Notify both users that full biodata is now approved and chat is available
-      await db.notification.create({
-        data: {
-          userId: match.requesterId,
-          type: 'full_data_approved',
-          title: 'Biodata Lengkap Disetujui',
-          message: 'Kedua belah pihak telah menyetujui untuk melihat biodata lengkap. Anda sekarang dapat mulai mengobrol!',
-          link: `/dashboard/matches/${matchId}`,
-        },
-      })
-
-      await db.notification.create({
-        data: {
-          userId: match.targetId,
-          type: 'full_data_approved',
-          title: 'Biodata Lengkap Disetujui',
-          message: 'Kedua belah pihak telah menyetujui untuk melihat biodata lengkap. Anda sekarang dapat mulai mengobrol!',
-          link: `/dashboard/matches/${matchId}`,
-        },
-      })
-
-      return NextResponse.json({
-        message: 'Full biodata approved by both users. Chat is now available!',
-        match: {
-          id: updatedMatch.id,
-          status: 'chatting',
-          step: 'full_data_approved',
-        },
-      })
-    }
-
-    return NextResponse.json({
-      message: 'Full biodata approved. Waiting for the other party.',
-      match: {
-        id: updatedMatch.id,
-        status: updatedMatch.status,
-        step: updatedMatch.step,
-      },
-    })
-  } catch (error) {
-    console.error('Error approving full biodata:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

@@ -1,35 +1,29 @@
 import type { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import GoogleProvider from 'next-auth/providers/google'
+import { PrismaAdapter } from '@next-auth/prisma-adapter'
 import bcrypt from 'bcryptjs'
+import { db } from '@/lib/db'
 import { verifyQuiz } from '@/lib/quiz'
 import { isBlocked, recordWrongQuizAttempt } from '@/lib/rate-limit'
 
 const shouldDebug = process.env.AUTH_DEBUG === 'true' || process.env.NODE_ENV !== 'production'
 
-let adapter: any = undefined
-let db: any = undefined
-if (process.env.DATABASE_URL) {
-  const { PrismaAdapter } = require('@next-auth/prisma-adapter')
-  const mod = require('@/lib/db')
-  db = mod.db
-  const base = PrismaAdapter(db)
-  adapter = {
-    ...base,
-    async createUser(data: any) {
-      const code =
-        `STRF-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
-      const sanitized = { ...data }
-      if ('image' in sanitized) delete (sanitized as any).image
-      if ('emailVerified' in sanitized) delete (sanitized as any).emailVerified
-      return base.createUser({ ...sanitized, uniqueCode: code })
-    }
+const baseAdapter = PrismaAdapter(db)
+const adapter: any = {
+  ...baseAdapter,
+  async createUser(data: any) {
+    const code = `STRF-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`
+    const sanitized = { ...data }
+    if ('image' in sanitized) delete (sanitized as any).image
+    if ('emailVerified' in sanitized) delete (sanitized as any).emailVerified
+    return (baseAdapter as any).createUser({ ...sanitized, uniqueCode: code })
   }
 }
 
 export const authOptions: NextAuthOptions = {
   trustHost: true,
-  ...(adapter ? { adapter } : {}),
+  adapter,
   session: {
     strategy: 'jwt',
     maxAge: 60 * 60 * 24 * 7,
@@ -239,6 +233,22 @@ export const authOptions: NextAuthOptions = {
             }
           }
         }
+        const uid = ((user as any)?.id as string | undefined) || (user?.email ? (await db.user.findUnique({ where: { email: user.email } }))?.id : undefined)
+        if (db && uid) {
+          try {
+            await db.profile.upsert({
+              where: { userId: uid },
+              update: {},
+              create: {
+                userId: uid,
+                fullName: user?.name || '',
+                maritalStatus: 'single'
+              }
+            })
+          } catch (e) {
+            try { if (shouldDebug) console.warn('PROFILE_UPSERT_ERROR', e) } catch {}
+          }
+        }
         try { if (shouldDebug) console.warn('AUTO_LINK_END', { provider: account?.provider, email: user?.email }) } catch {}
       } catch (e) {
         try { if (shouldDebug) console.warn('AUTO_LINK_ERROR', e) } catch {}
@@ -254,26 +264,6 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       if (token?.id && session.user) {
         ;(session.user as any).id = token.id
-        if (db) {
-          try {
-            const uid = token.id as string
-            const profile = await db.profile.findUnique({
-              where: { userId: uid }
-            })
-            if (!profile) {
-              await db.profile.create({
-                data: {
-                  userId: uid,
-                  fullName: session.user.name || '',
-                  age: 0,
-                  maritalStatus: 'single'
-                }
-              })
-            }
-          } catch (e) {
-            try { console.warn('SESSION_PROFILE_CREATE_ERROR', e) } catch {}
-          }
-        }
       }
       return session
     },
@@ -282,8 +272,10 @@ export const authOptions: NextAuthOptions = {
     async createUser({ user }) {
       try {
         if (db) {
-          await db.profile.create({
-            data: {
+          await db.profile.upsert({
+            where: { userId: user.id },
+            update: {},
+            create: {
               userId: user.id,
               fullName: user.name || '',
               gender: null,

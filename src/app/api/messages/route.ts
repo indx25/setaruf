@@ -1,7 +1,10 @@
+export const runtime = 'nodejs'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { throttle } from '@/lib/rate-limit'
+import { ensureIdempotency } from '@/lib/idempotency'
 
 // POST /api/messages - Send message (fallback if WebSocket fails)
 export async function POST(request: NextRequest) {
@@ -12,6 +15,12 @@ export async function POST(request: NextRequest) {
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || undefined
+    const idemKey = request.headers.get('x-idempotency-key')
+    await ensureIdempotency(idemKey, userId)
+    const ok = await throttle(`message:${userId}:${ip || 'na'}`, 60, 60_000)
+    if (!ok) return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 })
 
     const body = await request.json()
     const { matchId, receiverId, content } = body
@@ -71,7 +80,7 @@ export async function POST(request: NextRequest) {
     })
 
     // Return message with sender name
-    return NextResponse.json({
+    const res = NextResponse.json({
       message: {
         id: message.id,
         senderId: message.senderId,
@@ -83,6 +92,9 @@ export async function POST(request: NextRequest) {
         createdAt: message.createdAt,
       },
     })
+    res.headers.set('Cache-Control', 'no-store')
+    res.headers.set('X-Content-Type-Options', 'nosniff')
+    return res
   } catch (error) {
     console.error('Error sending message:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })

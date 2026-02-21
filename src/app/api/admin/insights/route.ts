@@ -37,6 +37,41 @@ export async function GET(request: NextRequest) {
     const allowed = await throttle(`admin:${userId}:insights`, limitPerMin, 60_000)
     if (!allowed) return NextResponse.json({ error: 'Rate limit. Coba lagi nanti.' }, { status: 429 })
 
+    const { searchParams } = new URL(request.url)
+    const q = searchParams.get('recommendationsFor') || searchParams.get('user') || searchParams.get('q')
+    if (q) {
+      const qTrim = q.trim()
+      const byUnique = await db.user.findFirst({ where: { uniqueCode: qTrim.toUpperCase() }, include: { profile: true, psychotests: true } })
+      const byEmail = byUnique ? null : await db.user.findFirst({ where: { email: qTrim }, include: { profile: true, psychotests: true } })
+      const byName = byUnique || byEmail ? null : await db.user.findFirst({
+        where: {
+          OR: [
+            { name: { contains: qTrim, mode: 'insensitive' } },
+            { profile: { is: { fullName: { contains: qTrim, mode: 'insensitive' } } } }
+          ]
+        },
+        include: { profile: true, psychotests: true }
+      })
+      const u = byUnique || byEmail || byName
+      if (!u) return NextResponse.json({ error: 'User tidak ditemukan' }, { status: 404 })
+      const ms = await db.match.findMany({
+        where: { requesterId: u.id, status: { in: ['pending', 'rejected'] } },
+        include: { target: { include: { profile: true } } },
+        orderBy: { matchPercentage: 'desc' },
+        take: 100
+      })
+      const list = ms.map(m => ({
+        id: m.id,
+        status: m.status,
+        match: m.matchPercentage || 0,
+        targetId: m.targetId,
+        name: (m as any).target?.profile?.fullName || (m as any).target?.name || 'Unknown',
+        city: (m as any).target?.profile?.city || null,
+        age: (m as any).target?.profile?.age || null
+      }))
+      return NextResponse.json({ user: { id: u.id, name: u.name, fullName: u.profile?.fullName || null, email: u.email, uniqueCode: u.uniqueCode }, recommendations: list })
+    }
+
     // Get all counts
     const [
       totalUsers,
@@ -121,7 +156,6 @@ export async function GET(request: NextRequest) {
     })
 
     // Extended analytics: traffic, login, demographics
-    const { searchParams } = new URL(request.url)
     const daysParam = parseInt(searchParams.get('days') || '30', 10)
     const days = Math.min(Math.max(isNaN(daysParam) ? 30 : daysParam, 7), 180)
     const startRange = new Date()

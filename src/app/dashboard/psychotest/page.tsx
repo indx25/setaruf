@@ -409,10 +409,9 @@ export default function PsychotestPage() {
           .every(r => r !== null)
 
         if (allCompleted) {
-          // Redirect to dashboard after all tests
           setTimeout(() => {
             router.push('/dashboard')
-          }, 2000)
+          }, 5000)
         } else {
           setCurrentCategory(null)
           setShowResults(true)
@@ -434,6 +433,18 @@ export default function PsychotestPage() {
   const currentTest = currentCategory ? testCategories[currentCategory] : null
   const currentQuestion = currentTest?.questions[currentQuestionIndex]
   const allTestsCompleted = Object.values(testResults).every(r => r !== null)
+
+  useEffect(() => {
+    let t: any
+    if (allTestsCompleted && !currentCategory && !showResults) {
+      t = setTimeout(() => {
+        router.push('/dashboard')
+      }, 5000)
+    }
+    return () => {
+      if (t) clearTimeout(t)
+    }
+  }, [allTestsCompleted, currentCategory, showResults, router])
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">

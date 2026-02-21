@@ -1,6 +1,7 @@
 type Entry = { attempts: number[]; blockedUntil?: number }
 const store = new Map<string, Entry>()
 const throttleStore = new Map<string, number[]>()
+const ttlStore = new Map<string, number>() // expiresAt in ms
 const RATE_LIMIT = 5
 const WINDOW_MS = 60_000
 const BLOCK_MS = 60_000
@@ -100,4 +101,26 @@ export async function throttle(key: string, limit: number, windowMs: number): Pr
   filtered.push(t)
   throttleStore.set(k, filtered)
   return filtered.length <= limit
+}
+
+// Generic TTL KV helpers with Upstash fallback to in-memory map
+export async function kvGet(key: string): Promise<string | null> {
+  if (UPSTASH_URL && UPSTASH_TOKEN) {
+    return await upstashGet(key)
+  }
+  const exp = ttlStore.get(key)
+  if (!exp) return null
+  if (exp < now()) {
+    ttlStore.delete(key)
+    return null
+  }
+  return '1'
+}
+
+export async function kvSetWithTTL(key: string, ttlSeconds: number): Promise<void> {
+  if (UPSTASH_URL && UPSTASH_TOKEN) {
+    await upstashSet(key, '1', ttlSeconds * 1000)
+    return
+  }
+  ttlStore.set(key, now() + ttlSeconds * 1000)
 }

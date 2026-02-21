@@ -1,7 +1,10 @@
+export const runtime = 'nodejs'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { throttle } from '@/lib/rate-limit'
+import { ensureIdempotency } from '@/lib/idempotency'
 
 // POST /api/matches/[matchId]/dislike - Hide this match permanently from recommendations
 export async function POST(
@@ -12,6 +15,11 @@ export async function POST(
     const session = await getServerSession(authOptions)
     const userId = (session?.user as any)?.id as string | undefined
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || undefined
+    const idemKey = request.headers.get('x-idempotency-key')
+    await ensureIdempotency(idemKey, userId)
+    const ok = await throttle(`dislike:${userId}:${ip || 'na'}`, 20, 60_000)
+    if (!ok) return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 })
 
     const matchId = params.matchId
     const match = await db.match.findUnique({

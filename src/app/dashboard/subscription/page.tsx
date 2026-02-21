@@ -41,6 +41,7 @@ export default function SubscriptionPage() {
   const [proofUrl, setProofUrl] = useState('')
   const [isUploading, setIsUploading] = useState(false)
   const [showPaymentDialog, setShowPaymentDialog] = useState(false)
+  const [preferredBank, setPreferredBank] = useState('BCA')
 
   useEffect(() => {
     loadSubscriptionData()
@@ -100,7 +101,9 @@ export default function SubscriptionPage() {
   const handleCreatePayment = async () => {
     try {
       const response = await fetch('/api/subscription/create-payment', {
-        method: 'POST'
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preferredBank })
       })
 
       const data = await response.json()
@@ -291,18 +294,33 @@ export default function SubscriptionPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <Label>Bank</Label>
-                    <p className="font-semibold text-lg">BCA</p>
+                    <p className="font-semibold text-lg">
+                      {pendingPayment?.bankName || preferredBank}
+                    </p>
                   </div>
                   <div>
                     <Label>No. Rekening</Label>
                     <div className="flex items-center gap-2">
-                      <p className="font-semibold text-lg">1084421955</p>
-                      <Button
+                      <p className="font-semibold text-lg">
+                        {pendingPayment?.accountNumber || (preferredBank === 'BCA' ? '1084421955' :
+                         preferredBank === 'MANDIRI' ? '1234567890' :
+                         preferredBank === 'BRI' ? '9876543210' :
+                         preferredBank === 'BNI' ? '1112223334' :
+                         preferredBank === 'OCBC' ? '4445556667' :
+                         '7778889990')}
+                      </p>
                         variant="ghost"
                         size="icon"
                         className="h-6 w-6"
                         onClick={() => copyToClipboard('1084421955')}
-                      >
+                        onClick={() => copyToClipboard(
+                          pendingPayment?.accountNumber || (preferredBank === 'BCA' ? '1084421955' :
+                          preferredBank === 'MANDIRI' ? '1234567890' :
+                          preferredBank === 'BRI' ? '9876543210' :
+                          preferredBank === 'BNI' ? '1112223334' :
+                          preferredBank === 'OCBC' ? '4445556667' :
+                          '7778889990')
+                        )}
                         <Copy className="w-4 h-4" />
                       </Button>
                     </div>
@@ -324,6 +342,22 @@ export default function SubscriptionPage() {
                 </Alert>
               ) : (
                 <Button
+                <>
+                <div>
+                  <Label>Pilih Bank</Label>
+                  <select
+                    value={preferredBank}
+                    onChange={(e) => setPreferredBank(e.target.value)}
+                    className="border rounded-md px-3 py-2 text-sm w-full mt-1"
+                  >
+                    <option value="BCA">BCA</option>
+                    <option value="MANDIRI">MANDIRI</option>
+                    <option value="BRI">BRI</option>
+                    <option value="BNI">BNI</option>
+                    <option value="OCBC">OCBC</option>
+                    <option value="SINARMAS">SINARMAS</option>
+                  </select>
+                </div>
                   onClick={handleCreatePayment}
                   className="w-full bg-gradient-to-r from-rose-500 to-pink-500 hover:from-rose-600 hover:to-pink-600"
                 >
@@ -331,9 +365,11 @@ export default function SubscriptionPage() {
                   Buat Payment Baru
                 </Button>
               )}
+                </>
             </div>
           </CardContent>
         </Card>
+
 
         {/* Pending Payment Actions */}
         {pendingPayment && (

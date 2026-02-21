@@ -2,454 +2,111 @@ import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { cookies } from 'next/headers'
-import * as logger from '@/lib/logger'
+import { enforceRateLimit } from '@/lib/rateLimit'
+import { ensureIdempotency } from '@/lib/idempotency'
+import { handleMatchAction } from '@/services/match.actions'
 
-// GET - Get match details
 export async function GET(
   request: NextRequest,
   { params }: { params: { matchId: string } }
 ) {
+  const cid = crypto.randomUUID()
   try {
     const session = await getServerSession(authOptions)
     const userId = (session?.user as any)?.id as string | undefined
-
     if (!userId) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-
-    const { matchId } = params
-
-    const match = await db.match.findFirst({
-      where: {
-        id: matchId,
-        OR: [
-          { requesterId: userId },
-          { targetId: userId }
-        ]
-      },
-      include: {
+    const match = await db.match.findUnique({
+      where: { id: params.matchId },
+      select: {
+        id: true,
+        status: true,
+        step: true,
+        requesterId: true,
+        targetId: true,
         requester: {
-          include: { profile: true, psychotests: true }
+          select: {
+            id: true,
+            profile: { select: { fullName: true, age: true, city: true } }
+          }
         },
         target: {
-          include: { profile: true, psychotests: true }
+          select: {
+            id: true,
+            profile: { select: { fullName: true, age: true, city: true } }
+          }
         }
       }
     })
-
     if (!match) {
-      return NextResponse.json(
-        { error: 'Match not found' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
-
-    // Determine which user is the current user
+    if (match.requesterId !== userId && match.targetId !== userId) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
     const isRequester = match.requesterId === userId
     const otherUser = isRequester ? match.target : match.requester
-
-    const cid = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`
-    return NextResponse.json({
-      match,
-      otherUser,
-      isRequester,
-      canViewProfile: match.status === 'approved' || match.step === 'profile_viewed',
-      canViewPhoto: match.step === 'photo_approved' || match.step === 'full_data_approved',
-      canViewFullBiodata: match.step === 'full_data_approved' || match.step === 'chatting',
-      canChat: match.step === 'chatting' || match.step === 'full_data_approved'
-    }, { headers: { 'Cache-Control': 'no-store, private, max-age=0', 'X-Request-ID': cid } })
-
-  } catch (error) {
-    const cid = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2,8)}`
-    console.error('Get match error:', { error, cid })
-    try { logger.record({ type: 'error', action: 'match_get', detail: `Get match error: ${error instanceof Error ? error.message : String(error)} (cid=${cid})` }) } catch {}
-    return NextResponse.json(
-      { error: 'Terjadi kesalahan saat mengambil data match' },
-      { status: 500 }
+    const res = NextResponse.json(
+      {
+        match,
+        otherUser,
+        isRequester,
+        permissions: {
+          canViewProfile: match.step === 'profile_viewed' || match.status === 'approved',
+          canViewPhoto: match.step === 'photo_approved' || match.step === 'full_data_approved',
+          canViewFullBiodata: match.step === 'full_data_approved' || match.step === 'chatting',
+          canChat: match.step === 'chatting'
+        }
+      },
+      { headers: { 'Cache-Control': 'no-store', 'X-Request-ID': cid } }
     )
+    return res
+  } catch (error) {
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
 
-// POST - Handle match actions (approve, reject, etc.)
 export async function POST(
   request: NextRequest,
   { params }: { params: { matchId: string } }
 ) {
+  const cid = crypto.randomUUID()
   try {
-    const cookieStore = await cookies()
-    const userId = cookieStore.get('userId')?.value
-
+    const session = await getServerSession(authOptions)
+    const userId = (session?.user as any)?.id as string | undefined
     if (!userId) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-
-    const { matchId } = params
-    const { action } = await request.json()
-
-    const match = await db.match.findFirst({
-      where: {
-        id: matchId,
-        OR: [
-          { requesterId: userId },
-          { targetId: userId }
-        ]
-      },
-      include: {
-        requester: true,
-        target: true
-      }
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || undefined
+    const idem = request.headers.get('x-idempotency-key')
+    await ensureIdempotency(idem, userId)
+    await enforceRateLimit(userId, ip)
+    const body = await request.json().catch(() => ({}))
+    const action = body?.action as string | undefined
+    if (!action) {
+      return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
+    }
+    const data = await db.$transaction(async (tx) => {
+      return handleMatchAction(tx, { matchId: params.matchId, userId, action })
     })
-
-    if (!match) {
-      return NextResponse.json(
-        { error: 'Match not found' },
-        { status: 404 }
-      )
+    return NextResponse.json({ success: true, data }, { headers: { 'X-Request-ID': cid } })
+  } catch (error: any) {
+    if (error?.code === 'INVALID_TRANSITION') {
+      return NextResponse.json({ error: 'Invalid transition' }, { status: 400 })
     }
-
-    const isRequester = match.requesterId === userId
-    const otherUserId = isRequester ? match.targetId : match.requesterId
-
-    let updatedMatch
-    let notificationType = ''
-    let notificationTitle = ''
-    let notificationMessage = ''
-
-    switch (action) {
-      case 'like':
-        updatedMatch = await db.match.update({
-          where: { id: matchId },
-          data: {
-            status: 'liked',
-            updatedAt: new Date()
-          }
-        })
-        notificationType = 'like'
-        notificationTitle = 'Anda disukai!'
-        notificationMessage = 'Pengguna menyukai profil Anda.'
-        break
-
-      case 'dislike':
-        updatedMatch = await db.match.update({
-          where: { id: matchId },
-          data: {
-            status: 'disliked',
-            updatedAt: new Date()
-          }
-        })
-        return NextResponse.json({
-          success: true,
-          message: 'Match dihapus dari rekomendasi',
-          match: updatedMatch
-        })
-
-      case 'approve_profile':
-        // Only target can approve profile view
-        if (isRequester) {
-          return NextResponse.json(
-            { error: 'Hanya penerima yang dapat menyetujui' },
-            { status: 403 }
-          )
-        }
-
-        updatedMatch = await db.match.update({
-          where: { id: matchId },
-          data: {
-            status: 'approved',
-            step: 'profile_viewed',
-            targetViewed: true,
-            requesterViewed: true,
-            updatedAt: new Date()
-          }
-        })
-
-        notificationType = 'profile_viewed'
-        notificationTitle = 'Permintaan Lihat Profil Disetujui!'
-        notificationMessage = 'Anda sekarang dapat melihat profil pasangan yang cocok.'
-        break
-
-      case 'reject_profile':
-        updatedMatch = await db.match.update({
-          where: { id: matchId },
-          data: {
-            status: 'rejected',
-            updatedAt: new Date()
-          }
-        })
-
-        notificationType = 'match_rejected'
-        notificationTitle = 'Permintaan Lihat Profil Ditolak'
-        notificationMessage = 'Maaf, permintaan Anda untuk melihat profil telah ditolak.'
-        break
-
-      case 'request_photo':
-        if (match.step !== 'profile_viewed') {
-          return NextResponse.json(
-            { error: 'Tahap tidak valid untuk request foto' },
-            { status: 400 }
-          )
-        }
-
-        updatedMatch = await db.match.update({
-          where: { id: matchId },
-          data: {
-            step: 'photo_requested',
-            updatedAt: new Date()
-          }
-        })
-
-        // Create notifications for both users
-        await db.notification.createMany({
-          data: [
-            {
-              userId: match.requesterId,
-              type: 'photo_request',
-              title: 'Rekomendasi Lihat Foto',
-              message: 'Sistem merekomendasikan Anda untuk melihat foto pasangan. Silakan setujui atau tolak.',
-              link: `/dashboard/matches/${matchId}`
-            },
-            {
-              userId: match.targetId,
-              type: 'photo_request',
-              title: 'Rekomendasi Lihat Foto',
-              message: 'Sistem merekomendasikan Anda untuk melihat foto pasangan. Silakan setujui atau tolak.',
-              link: `/dashboard/matches/${matchId}`
-            }
-          ]
-        })
-
-        return NextResponse.json({
-          success: true,
-          message: 'Request foto dikirim',
-          match: updatedMatch
-        })
-
-      case 'approve_photo':
-        updatedMatch = await db.match.update({
-          where: { id: matchId },
-          data: {
-            step: 'photo_approved',
-            updatedAt: new Date()
-          }
-        })
-
-        // Check if both approved
-        const photoApprovals = await db.match.findUnique({
-          where: { id: matchId },
-          select: { step: true }
-        })
-
-        // If at photo_approved stage, both have approved
-        notificationType = 'photo_approved'
-        notificationTitle = 'Foto Disetujui!'
-        notificationMessage = 'Anda sekarang dapat melihat foto pasangan.'
-        break
-
-      case 'reject_photo':
-        updatedMatch = await db.match.update({
-          where: { id: matchId },
-          data: {
-            status: 'rejected',
-            step: 'photo_rejected',
-            updatedAt: new Date()
-          }
-        })
-
-        await db.notification.create({
-          data: {
-            userId: otherUserId,
-            type: 'photo_rejected',
-            title: 'Permintaan Foto Ditolak',
-            message: 'Permintaan untuk melihat foto telah ditolak.',
-            link: `/dashboard/matches/${matchId}`
-          }
-        })
-
-        return NextResponse.json({
-          success: true,
-          message: 'Request foto ditolak',
-          match: updatedMatch
-        })
-
-      case 'request_full_biodata':
-        if (match.step !== 'photo_approved') {
-          return NextResponse.json(
-            { error: 'Tahap tidak valid untuk request biodata lengkap' },
-            { status: 400 }
-          )
-        }
-
-        updatedMatch = await db.match.update({
-          where: { id: matchId },
-          data: {
-            step: 'full_data_requested',
-            updatedAt: new Date()
-          }
-        })
-
-        // Create notifications for both users
-        await db.notification.createMany({
-          data: [
-            {
-              userId: match.requesterId,
-              type: 'full_data_request',
-              title: 'Rekomendasi Lihat Biodata Lengkap',
-              message: 'Sistem merekomendasikan Anda untuk melihat biodata lengkap pasangan. Silakan setujui atau tolak.',
-              link: `/dashboard/matches/${matchId}`
-            },
-            {
-              userId: match.targetId,
-              type: 'full_data_request',
-              title: 'Rekomendasi Lihat Biodata Lengkap',
-              message: 'Sistem merekomendasikan Anda untuk melihat biodata lengkap pasangan. Silakan setujui atau tolak.',
-              link: `/dashboard/matches/${matchId}`
-            }
-          ]
-        })
-
-        return NextResponse.json({
-          success: true,
-          message: 'Request biodata lengkap dikirim',
-          match: updatedMatch
-        })
-
-      case 'approve_full_biodata':
-        updatedMatch = await db.match.update({
-          where: { id: matchId },
-          data: {
-            step: 'full_data_approved',
-            updatedAt: new Date()
-          }
-        })
-
-        // Update user workflow status to getting_to_know
-        await db.user.update({
-          where: { id: userId },
-          data: { workflowStatus: 'getting_to_know' }
-        })
-
-        notificationType = 'full_data_approved'
-        notificationTitle = 'Biodata Lengkap Disetujui!'
-        notificationMessage = 'Anda sekarang dapat melihat biodata lengkap pasangan dan mulai chat.'
-        break
-
-      case 'reject_full_biodata':
-        updatedMatch = await db.match.update({
-          where: { id: matchId },
-          data: {
-            status: 'rejected',
-            step: 'full_data_rejected',
-            updatedAt: new Date()
-          }
-        })
-
-        await db.notification.create({
-          data: {
-            userId: otherUserId,
-            type: 'full_data_rejected',
-            title: 'Permintaan Biodata Lengkap Ditolak',
-            message: 'Permintaan untuk melihat biodata lengkap telah ditolak.',
-            link: `/dashboard/matches/${matchId}`
-          }
-        })
-
-        return NextResponse.json({
-          success: true,
-          message: 'Request biodata lengkap ditolak',
-          match: updatedMatch
-        })
-
-      case 'start_chatting':
-        if (match.step !== 'full_data_approved') {
-          return NextResponse.json(
-            { error: 'Tidak dapat memulai chat sebelum biodata lengkap disetujui' },
-            { status: 400 }
-          )
-        }
-
-        updatedMatch = await db.match.update({
-          where: { id: matchId },
-          data: {
-            step: 'chatting',
-            updatedAt: new Date()
-          }
-        })
-
-        await db.user.updateMany({
-          where: {
-            id: { in: [match.requesterId, match.targetId] }
-          },
-          data: { workflowStatus: 'getting_to_know' }
-        })
-
-        notificationType = 'chat_enabled'
-        notificationTitle = 'Chat Aktif!'
-        notificationMessage = 'Anda sekarang dapat mengobrol dengan pasangan.'
-        break
-
-      case 'block':
-        updatedMatch = await db.match.update({
-          where: { id: matchId },
-          data: {
-            status: 'blocked',
-            updatedAt: new Date()
-          }
-        })
-
-        await db.notification.create({
-          data: {
-            userId: otherUserId,
-            type: 'match_blocked',
-            title: 'Match Diblokir',
-            message: 'Pengguna lain telah memblokir match ini.',
-            link: '/dashboard'
-          }
-        })
-
-        return NextResponse.json({
-          success: true,
-          message: 'Match berhasil diblokir',
-          match: updatedMatch
-        })
-
-      default:
-        return NextResponse.json(
-          { error: 'Invalid action' },
-          { status: 400 }
-        )
+    if (error?.code === 'RATE_LIMITED') {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
     }
-
-    // Create notification if there's one
-    if (notificationType) {
-      await db.notification.create({
-        data: {
-          userId: otherUserId,
-          type: notificationType,
-          title: notificationTitle,
-          message: notificationMessage,
-          link: `/dashboard/matches/${matchId}`
-        }
-      })
+    if (error?.code === 'IDEMPOTENT') {
+      return NextResponse.json({ error: 'Duplicate request' }, { status: 409 })
     }
-
-    return NextResponse.json({
-      success: true,
-      message: 'Action berhasil',
-      match: updatedMatch
-    })
-
-  } catch (error) {
-    console.error('Match action error:', error)
-    return NextResponse.json(
-      { error: 'Terjadi kesalahan saat melakukan action' },
-      { status: 500 }
-    )
+    if (error?.code === 'FORBIDDEN') {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+    if (error?.code === 'NOT_FOUND') {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

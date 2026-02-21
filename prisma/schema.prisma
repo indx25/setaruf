@@ -7,6 +7,11 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum Gender {
+  male
+  female
+}
+
 model Account {
   id                String  @id @default(cuid())
   userId            String
@@ -51,12 +56,18 @@ model User {
   emailVerified    DateTime?
   dateOfBirth      DateTime?
   isBlocked        Boolean        @default(false)
+  isFlagged        Boolean        @default(false)
+  penaltyLevel     Int            @default(0)
+  penaltyUntil     DateTime?
   isPremium        Boolean        @default(false)
   isAdmin          Boolean        @default(false)
   avatar           String?
   workflowStatus   String         @default("biodata")
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
+  traitVector      Float[]
+  traitVersion     Int?
+  traitUpdatedAt   DateTime?
   accounts         Account[]
   sentMatches      Match[]        @relation("SentMatches")
   receivedMatches  Match[]        @relation("ReceivedMatches")
@@ -71,6 +82,7 @@ model User {
 
   @@index([isBlocked])
   @@index([isPremium])
+  @@index([penaltyUntil])
 }
 
 model Profile {
@@ -78,8 +90,9 @@ model Profile {
   userId                 String    @unique
   fullName               String?
   initials               String?
-  gender                 String?
+  gender                 Gender?
   age                    Int?
+  completionScore        Int?
   dateOfBirth            DateTime?
   placeOfBirth           String?
   nationality            String?
@@ -127,6 +140,8 @@ model Profile {
   whatsapp               String?
   quote                  String?
   user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([gender, religion, age])
 }
 
 model PsychoTest {
@@ -150,6 +165,11 @@ model Match {
   requesterId     String
   targetId        String
   matchPercentage Float?
+  compatibilityScore      Float?
+  conflictRiskScore       Float?
+  emotionalStabilityScore Float?
+  lifeAlignmentScore      Float?
+  matchVersion    Int?
   aiReasoning     String?
   status          String   @default("pending")
   step            String   @default("profile_request")
@@ -157,13 +177,29 @@ model Match {
   targetViewed    Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  pairKey         String?
   requester       User     @relation("SentMatches", fields: [requesterId], references: [id], onDelete: Cascade)
   target          User     @relation("ReceivedMatches", fields: [targetId], references: [id], onDelete: Cascade)
 
   @@unique([requesterId, targetId])
+  @@unique([pairKey])
   @@index([requesterId])
   @@index([targetId])
+  @@index([requesterId, targetId])
+  @@index([targetId, requesterId])
   @@index([status, step])
+}
+
+model CompatibilityScore {
+  id         String   @id @default(cuid())
+  userAId    String
+  userBId    String
+  score      Int
+  breakdown  Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userAId, userBId], name: "userAId_userBId")
 }
 
 model Message {
@@ -210,6 +246,13 @@ model Payment {
   accountName   String
   accountNumber String
   proofUrl      String?
+  imageHash     String?
+  bankDetected  String?
+  ocrAmount     Float?
+  ocrAccount    String?
+  fraudScore    Int?
+  fraudLevel    String?
+  autoDecision  String?
   status        String    @default("pending")
   adminNote     String?
   approvedBy    String?
@@ -222,6 +265,19 @@ model Payment {
   @@index([userId])
   @@index([status])
   @@index([createdAt])
+  @@index([imageHash])
+}
+
+model BankAccount {
+  id        String   @id @default(cuid())
+  userId    String
+  bank      String
+  accountNo String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([accountNo])
 }
 
 model Notification {
@@ -232,12 +288,15 @@ model Notification {
   message   String
   link      String?
   isRead    Boolean  @default(false)
+  dedupeKey String?
   createdAt DateTime @default(now())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([userId, isRead])
   @@index([createdAt])
+  @@index([userId, type, link])
+  @@unique([dedupeKey])
 }
 
 model Advertisement {

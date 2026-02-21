@@ -1,85 +1,84 @@
+export const runtime = 'nodejs'
+
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { db } from '@/lib/db'
+import { ensureIdempotency } from '@/lib/idempotency'
+import { enforceRateLimit } from '@/lib/rateLimit'
+import { MatchStep } from '@/lib/matchEngine'
+import { transitionMatchStep } from '@/lib/transitionEngine'
 
-// POST /api/matches/[matchId]/request-full-biodata - Request full biodata (system recommendation)
 export async function POST(
   request: NextRequest,
   { params }: { params: { matchId: string } }
 ) {
+  const cid = crypto.randomUUID()
   try {
     const session = await getServerSession(authOptions)
-    const userId = (session?.user as any)?.id as string | undefined
-
+    const userId = (session?.user as { id?: string } | undefined)?.id
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-
     const matchId = params.matchId
+    if (!matchId) {
+      return NextResponse.json({ error: 'Invalid match ID' }, { status: 400 })
+    }
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || undefined
+    const idem = request.headers.get('x-idempotency-key')
+    await ensureIdempotency(idem, userId)
+    await enforceRateLimit(userId, ip)
 
-    // Fetch match
     const match = await db.match.findUnique({
       where: { id: matchId },
-      include: {
-        requester: true,
-        target: true,
-      },
+      select: { id: true, requesterId: true, targetId: true, step: true }
     })
-
     if (!match) {
-      return NextResponse.json({ error: 'Match not found' }, { status: 404 })
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
-
-    // Check if the user is part of this match
     if (match.requesterId !== userId && match.targetId !== userId) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    // Only allow full biodata request after photo is approved
-    if (match.status !== 'approved' || match.step !== 'photo_approved') {
-      return NextResponse.json({ error: 'Cannot request full biodata at this stage' }, { status: 400 })
+    if (match.step === 'full_data_requested') {
+      return NextResponse.json({ message: 'Already requested' }, { headers: { 'X-Request-ID': cid } })
     }
 
-    // Update match step to full_data_requested
-    const updatedMatch = await db.match.update({
-      where: { id: matchId },
-      data: {
-        step: 'full_data_requested',
-      },
+    await transitionMatchStep(matchId, MatchStep.FULL_DATA_REQUESTED)
+
+    await db.notification.createMany({
+      data: [
+        {
+          userId: match.requesterId,
+          type: 'full_data_request',
+          title: 'Rekomendasi Lihat Biodata Lengkap',
+          message: 'Sistem merekomendasikan Anda untuk melihat biodata lengkap pasangan.',
+          link: `/dashboard/matches/${matchId}`,
+          dedupeKey: `full_data_request:${matchId}:${match.requesterId}`
+        },
+        {
+          userId: match.targetId,
+          type: 'full_data_request',
+          title: 'Rekomendasi Lihat Biodata Lengkap',
+          message: 'Sistem merekomendasikan Anda untuk melihat biodata lengkap pasangan.',
+          link: `/dashboard/matches/${matchId}`,
+          dedupeKey: `full_data_request:${matchId}:${match.targetId}`
+        }
+      ]
     })
 
-    // Create notifications for both users about full biodata recommendation
-    await db.notification.create({
-      data: {
-        userId: match.requesterId,
-        type: 'full_data_request',
-        title: 'Rekomendasi Biodata Lengkap',
-        message: 'Sistem merekomendasikan Anda untuk saling melihat biodata lengkap. Silakan setujui untuk melanjutkan.',
-        link: `/dashboard/matches/${matchId}`,
-      },
-    })
-
-    await db.notification.create({
-      data: {
-        userId: match.targetId,
-        type: 'full_data_request',
-        title: 'Rekomendasi Biodata Lengkap',
-        message: 'Sistem merekomendasikan Anda untuk saling melihat biodata lengkap. Silakan setujui untuk melanjutkan.',
-        link: `/dashboard/matches/${matchId}`,
-      },
-    })
-
-    return NextResponse.json({
-      message: 'Full biodata recommendation sent to both users',
-      match: {
-        id: updatedMatch.id,
-        status: updatedMatch.status,
-        step: updatedMatch.step,
-      },
-    })
-  } catch (error) {
-    console.error('Error requesting full biodata:', error)
+    return NextResponse.json({ message: 'Request full biodata dikirim' }, { headers: { 'X-Request-ID': cid } })
+  } catch (error: any) {
+    if (error?.code === 'INVALID_TRANSITION') {
+      return NextResponse.json({ error: 'Invalid transition' }, { status: 400 })
+    }
+    if (error?.code === 'RATE_LIMITED') {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+    }
+    if (error?.code === 'IDEMPOTENT') {
+      return NextResponse.json({ message: 'Already processed' }, { status: 200 })
+    }
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
+

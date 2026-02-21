@@ -157,10 +157,39 @@ export default function MatchDetailPage() {
     return colors[status] || 'bg-gray-500'
   }
 
-  const getInitials = (name: string) => {
+  const getInitials = (name?: string | null) => {
     if (!name) return 'U'
-    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+    const parts = String(name).trim().split(/\s+/).filter(Boolean)
+    const initials = parts.slice(0, 2).map(p => p[0]?.toUpperCase() || '').join('')
+    return initials || 'U'
   }
+
+  const [actionBusy, setActionBusy] = useState<string | null>(null)
+  const doPost = async (url: string) => {
+    setActionBusy(url)
+    try {
+      const res = await fetch(url, { method: 'POST', headers: { 'x-idempotency-key': crypto.randomUUID() } })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(j?.error || `${res.status}`)
+      await loadMatchData()
+    } catch (e: any) {
+      setError(e?.message || 'Gagal')
+    } finally {
+      setActionBusy(null)
+    }
+  }
+
+  const currentStep = match.step as string | null
+  const stepOrder = ['profile_request','profile_viewed','requester_liked','target_liked','mutual_liked'] as const
+  const stepIndex = Math.max(0, stepOrder.findIndex(s => s === currentStep))
+  const progressPct = currentStep === 'mutual_liked' ? 100 : Math.max(10, Math.round(((stepIndex + 1) / stepOrder.length) * 100))
+  const isRequester = match?.requesterId && otherUser?.id ? match.requesterId !== otherUser.id : true
+  const likedByRequester = currentStep === 'requester_liked' || currentStep === 'mutual_liked'
+  const likedByTarget = currentStep === 'target_liked' || currentStep === 'mutual_liked'
+  const likedByMe = isRequester ? likedByRequester : likedByTarget
+  const canSendRequest = currentStep !== 'profile_request' && currentStep !== 'profile_viewed' && !likedByMe && match.status !== 'approved'
+  const canApprove = currentStep === 'profile_request' && match.status !== 'approved'
+  const canLike = (match.status === 'approved' || currentStep === 'profile_viewed' || currentStep === 'requester_liked' || currentStep === 'target_liked') && currentStep !== 'mutual_liked'
 
   if (isLoading) {
     return (
@@ -186,7 +215,7 @@ export default function MatchDetailPage() {
 
   const profile = otherUser.profile || {}
   const initials = getInitials(otherUser.name || '')
-  const canViewProfile = match.status === 'approved' || match.step === 'profile_viewed' || match.step.startsWith('photo') || match.step.startsWith('full_data') || match.step === 'chatting'
+  const canViewProfile = match.status === 'approved' || match.step === 'profile_viewed' || (match.step || '').startsWith('photo') || (match.step || '').startsWith('full_data') || match.step === 'chatting'
   const canViewPhoto = match.step === 'photo_approved' || match.step === 'full_data_approved' || match.step === 'chatting'
   const canViewFullBiodata = match.step === 'full_data_approved' || match.step === 'chatting'
   const canChat = match.step === 'chatting'
@@ -219,6 +248,46 @@ export default function MatchDetailPage() {
 
       <div className="max-w-6xl mx-auto px-4 py-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-3">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Progress ke Mutual Suka</CardTitle>
+                <CardDescription>Ikuti langkah hingga saling menyukai</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="mb-3">
+                  <Progress value={progressPct} />
+                </div>
+                <div className="flex items-center justify-between text-sm text-gray-600">
+                  <span className={stepIndex >= 0 ? 'font-semibold text-gray-900' : ''}>Request Profil</span>
+                  <span className={stepIndex >= 1 ? 'font-semibold text-gray-900' : ''}>Disetujui</span>
+                  <span className={stepIndex >= 2 ? 'font-semibold text-gray-900' : ''}>Suka Anda</span>
+                  <span className={stepIndex >= 3 ? 'font-semibold text-gray-900' : ''}>Suka Pasangan</span>
+                  <span className={stepIndex >= 4 ? 'font-semibold text-gray-900' : ''}>Mutual</span>
+                </div>
+                <div className="mt-4 flex gap-8 flex-wrap">
+                  {canSendRequest && (
+                    <Button disabled={!!actionBusy} onClick={() => doPost(`/api/matches/${matchId}/request`)}>
+                      Kirim Request Lihat Profil
+                    </Button>
+                  )}
+                  {canApprove && (
+                    <Button disabled={!!actionBusy} onClick={() => doPost(`/api/matches/${matchId}/approve`)}>
+                      Setujui Lihat Profil
+                    </Button>
+                  )}
+                  {canLike && (
+                    <Button disabled={!!actionBusy} onClick={() => doPost(`/api/matches/${matchId}/like`)}>
+                      {likedByMe ? 'Menunggu Suka Pasangan' : 'Suka'}
+                    </Button>
+                  )}
+                  {currentStep === 'mutual_liked' && (
+                    <Badge className="bg-emerald-600">Sudah Mutual Suka</Badge>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
           {/* Left Column - Profile */}
           <div className="lg:col-span-2 space-y-6">
             {/* Profile Card */}
@@ -398,6 +467,36 @@ export default function MatchDetailPage() {
               )}
             </Card>
 
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Skor Psikotes</CardTitle>
+                <CardDescription>Ringkasan skor utama pasangan</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {(otherUser.psychotests || []).length ? (
+                  (otherUser.psychotests || []).map((t: any, idx: number) => {
+                    const labelMap: Record<string, string> = { pre_marriage: 'Pra‑Nikah', disc: 'DISC', clinical: 'Clinical', '16pf': '16PF' }
+                    const score = Math.round(Math.max(0, Math.min(100, t.score || 0)))
+                    const color = score >= 75 ? 'bg-emerald-500' : score >= 60 ? 'bg-amber-500' : 'bg-rose-500'
+                    return (
+                      <div key={idx}>
+                        <div className="flex items-center justify-between text-sm mb-1">
+                          <span>{labelMap[t.testType] || t.testType}</span>
+                          <span className="font-medium">{score}%</span>
+                        </div>
+                        <div className="h-2 w-full rounded bg-gray-100 overflow-hidden">
+                          <div className={`h-full ${color}`} style={{ width: `${score}%` }} />
+                        </div>
+                        {t.result && <div className="text-xs text-gray-500 mt-1">{t.result}</div>}
+                      </div>
+                    )
+                  })
+                ) : (
+                  <div className="text-sm text-gray-500">Belum ada data psikotes.</div>
+                )}
+              </CardContent>
+            </Card>
+
             {/* AI Reasoning */}
             {match.aiReasoning && (
               <Card>
@@ -413,6 +512,33 @@ export default function MatchDetailPage() {
 
           {/* Right Column - Actions */}
           <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Ringkasan Kecocokan</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">Kecocokan Umum</span>
+                  <Badge variant="outline">{Math.round(match.compatibilityScore ?? match.matchPercentage ?? 0)}%</Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">Resiko Konflik</span>
+                  <Badge className={`${(match.conflictRiskScore ?? 0) < 40 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : (match.conflictRiskScore ?? 0) < 70 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
+                    {(match.conflictRiskScore ?? 0) < 40 ? 'Rendah' : (match.conflictRiskScore ?? 0) < 70 ? 'Sedang' : 'Tinggi'}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">Stabilitas Emosi</span>
+                  <Badge className={`${(match.emotionalStabilityScore ?? 0) > 70 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : (match.emotionalStabilityScore ?? 0) > 40 ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>
+                    {(match.emotionalStabilityScore ?? 0) > 70 ? 'Stabil' : (match.emotionalStabilityScore ?? 0) > 40 ? 'Cukup' : 'Perlu Perhatian'}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600">Keselarasan Hidup</span>
+                  <Badge variant="outline">{Math.round(match.lifeAlignmentScore ?? 0)}%</Badge>
+                </div>
+              </CardContent>
+            </Card>
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Lanjut / Tidak</CardTitle>
@@ -494,7 +620,7 @@ export default function MatchDetailPage() {
                   <span className="text-sm text-gray-600">Tahap Saat Ini:</span>
                   <Badge variant="outline">{getStepLabel(match.step)}</Badge>
                 </div>
-                <Progress value={match.step === 'chatting' ? 100 : match.step.includes('approved') ? 75 : match.step.includes('requested') ? 50 : 25} />
+                <Progress value={match.step === 'chatting' ? 100 : (match.step || '').includes('approved') ? 75 : (match.step || '').includes('requested') ? 50 : 25} />
                 <div className="text-xs text-gray-500 text-center">
                   {match.step === 'profile_request' && 'Menunggu persetujuan profil'}
                   {match.step === 'profile_viewed' && 'Profil telah disetujui'}

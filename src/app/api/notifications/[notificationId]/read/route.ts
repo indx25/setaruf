@@ -1,7 +1,10 @@
+export const runtime = 'nodejs'
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { throttle } from '@/lib/rate-limit'
+import { ensureIdempotency } from '@/lib/idempotency'
 
 // POST /api/notifications/[notificationId]/read - Mark notification as read
 export async function POST(
@@ -15,6 +18,12 @@ export async function POST(
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
+
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || undefined
+    const idemKey = request.headers.get('x-idempotency-key')
+    await ensureIdempotency(idemKey, userId)
+    const ok = await throttle(`notif-read:${userId}:${ip || 'na'}`, 200, 60_000)
+    if (!ok) return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 })
 
     const notificationId = params.notificationId
 
@@ -40,10 +49,12 @@ export async function POST(
       },
     })
 
-    return NextResponse.json({
+    const res = NextResponse.json({
       message: 'Notification marked as read',
       notification: updatedNotification,
     })
+    res.headers.set('Cache-Control', 'no-store')
+    return res
   } catch (error) {
     console.error('Error marking notification as read:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
