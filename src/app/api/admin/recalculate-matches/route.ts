@@ -3,6 +3,9 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { db } from '@/lib/db'
 
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
+
 const TEST_WEIGHTS: Record<string, number> = {
   pre_marriage: 0.4,
   disc: 0.2,
@@ -52,28 +55,30 @@ export async function POST(req: NextRequest) {
       }
     })
 
-    let updated = 0
     const diffs: Array<{ id: string; before: number | null; after: number }> = []
 
     for (const m of matches) {
       const before = m.matchPercentage ?? null
       const after = calculateMatch(m.requester.psychotests || [], m.target.psychotests || [])
-      if (before !== after) {
-        diffs.push({ id: m.id, before, after })
-        if (!dryRun) {
-          await db.match.update({ where: { id: m.id }, data: { matchPercentage: after } })
-        }
-        updated++
-      }
+      if (before !== after) diffs.push({ id: m.id, before, after })
     }
+
+    if (!dryRun && diffs.length) {
+      await db.$transaction(
+        diffs.map(d => db.match.update({ where: { id: d.id }, data: { matchPercentage: d.after } }))
+      )
+    }
+
+    console.log(`Processed ${matches.length} matches, updated ${diffs.length} records (dryRun=${dryRun})`)
 
     return NextResponse.json({
       processed: matches.length,
-      updated,
+      updated: diffs.length,
       dryRun,
       diffs
     })
   } catch (e) {
+    console.error(e)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
